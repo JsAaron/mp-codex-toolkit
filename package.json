@@ -1,0 +1,14 @@
+{
+  "name": "wechat-auto-fix-agent",
+  "version": "1.0.0",
+  "description": "微信小程序自动化错误修复Agent",
+  "main": "index.js",
+  "scripts": {
+    "test": "node test-simple.js"
+  },
+  "dependencies": {
+    "miniprogram-automator": "^0.10.0",
+    "axios": "^1.6.0",
+    "fs-extra": "^11.1.0"
+  }
+}
