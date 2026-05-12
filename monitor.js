@@ -10,6 +10,53 @@ async function main() {
   const autoPort = 9420
   const cliProcess = spawn(config.cliPath, ['auto', '--project', config.projectPath, '--auto-port', String(autoPort)])
 
+  // 监听 CLI 进程的输出（捕获编译错误）
+  const compileErrors = new Set()
+
+  cliProcess.stdout.on('data', data => {
+    const output = data.toString()
+    console.log('[CLI stdout]', output)
+
+    // 检测编译错误关键词
+    if (output.includes('Error:') || output.includes('编译错误') || output.includes('SyntaxError')) {
+      const errorKey = 'compile:' + output.trim()
+      if (!compileErrors.has(errorKey)) {
+        compileErrors.add(errorKey)
+        console.log('\n⚠️  检测到编译错误:\n', output)
+
+        // 保存编译错误日志
+        const now = new Date()
+        const timestamp = `${now.getHours()}-${now.getMinutes()}-${now.getSeconds()}`
+        const errorDir = path.join(__dirname, 'error-logs', timestamp)
+        fs.ensureDirSync(errorDir)
+        fs.writeFileSync(
+          path.join(errorDir, 'compile-error.txt'),
+          `编译错误 (${new Date().toISOString()})\n\n${output}`
+        )
+        console.log(`已保存编译错误到: error-logs/${timestamp}/compile-error.txt\n`)
+      }
+    }
+  })
+
+  cliProcess.stderr.on('data', data => {
+    const output = data.toString()
+    console.log('[CLI stderr]', output)
+
+    // stderr 通常包含错误信息
+    const errorKey = 'compile-stderr:' + output.trim()
+    if (!compileErrors.has(errorKey)) {
+      compileErrors.add(errorKey)
+      console.log('\n⚠️  CLI 错误输出:\n', output)
+
+      const now = new Date()
+      const timestamp = `${now.getHours()}-${now.getMinutes()}-${now.getSeconds()}`
+      const errorDir = path.join(__dirname, 'error-logs', timestamp)
+      fs.ensureDirSync(errorDir)
+      fs.writeFileSync(path.join(errorDir, 'cli-error.txt'), `CLI 错误 (${new Date().toISOString()})\n\n${output}`)
+      console.log(`已保存 CLI 错误到: error-logs/${timestamp}/cli-error.txt\n`)
+    }
+  })
+
   await new Promise(resolve => setTimeout(resolve, 10000))
 
   const miniProgram = await automator.connect({ wsEndpoint: `ws://localhost:${autoPort}` })
