@@ -10,53 +10,6 @@ async function main() {
   const autoPort = 9420
   const cliProcess = spawn(config.cliPath, ['auto', '--project', config.projectPath, '--auto-port', String(autoPort)])
 
-  // 监听 CLI 进程的输出（捕获编译错误）
-  const compileErrors = new Set()
-
-  cliProcess.stdout.on('data', data => {
-    const output = data.toString()
-    console.log('[CLI stdout]', output)
-
-    // 检测编译错误关键词
-    if (output.includes('Error:') || output.includes('编译错误') || output.includes('SyntaxError')) {
-      const errorKey = 'compile:' + output.trim()
-      if (!compileErrors.has(errorKey)) {
-        compileErrors.add(errorKey)
-        console.log('\n⚠️  检测到编译错误:\n', output)
-
-        // 保存编译错误日志
-        const now = new Date()
-        const timestamp = `${now.getHours()}-${now.getMinutes()}-${now.getSeconds()}`
-        const errorDir = path.join(__dirname, 'error-logs', timestamp)
-        fs.ensureDirSync(errorDir)
-        fs.writeFileSync(
-          path.join(errorDir, 'compile-error.txt'),
-          `编译错误 (${new Date().toISOString()})\n\n${output}`
-        )
-        console.log(`已保存编译错误到: error-logs/${timestamp}/compile-error.txt\n`)
-      }
-    }
-  })
-
-  cliProcess.stderr.on('data', data => {
-    const output = data.toString()
-    console.log('[CLI stderr]', output)
-
-    // stderr 通常包含错误信息
-    const errorKey = 'compile-stderr:' + output.trim()
-    if (!compileErrors.has(errorKey)) {
-      compileErrors.add(errorKey)
-      console.log('\n⚠️  CLI 错误输出:\n', output)
-
-      const now = new Date()
-      const timestamp = `${now.getHours()}-${now.getMinutes()}-${now.getSeconds()}`
-      const errorDir = path.join(__dirname, 'error-logs', timestamp)
-      fs.ensureDirSync(errorDir)
-      fs.writeFileSync(path.join(errorDir, 'cli-error.txt'), `CLI 错误 (${new Date().toISOString()})\n\n${output}`)
-      console.log(`已保存 CLI 错误到: error-logs/${timestamp}/cli-error.txt\n`)
-    }
-  })
-
   await new Promise(resolve => setTimeout(resolve, 10000))
 
   const miniProgram = await automator.connect({ wsEndpoint: `ws://localhost:${autoPort}` })
@@ -66,7 +19,6 @@ async function main() {
 
   const captured = new Set()
   let lastPagePath = null
-  let consoleEventCount = 0
   let pageReloadCount = 0
 
   // 监听页面变化
@@ -80,13 +32,38 @@ async function main() {
         console.log(`\n${'='.repeat(60)}`)
         console.log(`📄 页面变化 #${pageReloadCount}: ${lastPagePath || '(初始)'} -> ${currentPath}`)
         console.log(`⏰ 时间: ${new Date().toLocaleTimeString()}`)
-        console.log(`📊 已捕获 console 事件数: ${consoleEventCount}`)
         console.log(`✅ 事件监听器状态: 正常运行中`)
         console.log(`${'='.repeat(60)}\n`)
         lastPagePath = currentPath
       }
     } catch (e) {}
   }, 500)
+
+  // 解析堆栈信息，提取文件名和行号
+  function parseStackTrace(stack) {
+    if (!stack) return null
+
+    const lines = stack.split('\n')
+    const locations = []
+
+    for (const line of lines) {
+      // 匹配格式: at functionName (file.js:line:column)
+      // 或: at file.js:line:column
+      const match = line.match(/at\s+(?:(.+?)\s+\()?(.+?):(\d+):(\d+)\)?/)
+      if (match) {
+        const [, funcName, file, line, column] = match
+        locations.push({
+          function: funcName || '(anonymous)',
+          file: file.replace(/^.*[\/\\]/, ''), // 只保留文件名
+          line: parseInt(line),
+          column: parseInt(column),
+          fullPath: file
+        })
+      }
+    }
+
+    return locations.length > 0 ? locations : null
+  }
 
   // 保存错误的通用函数
   async function saveError(type, message, extraData = {}) {
@@ -103,7 +80,17 @@ async function main() {
     }
 
     captured.add(key)
-    console.log(`[${type}] ${message}`)
+
+    // 解析堆栈信息
+    const stackLocations = parseStackTrace(extraData.stack)
+    if (stackLocations && stackLocations.length > 0) {
+      console.log(`📍 错误位置（编译后的行号）:`)
+      stackLocations.slice(0, 3).forEach((loc, idx) => {
+        console.log(`   ${idx + 1}. ${loc.file}:${loc.line}:${loc.column} (${loc.function})`)
+      })
+      console.log(`⚠️  注意：行号是编译后的代码，可能与源码不一致`)
+      console.log(`💡 提示：通过错误消息内容在源码中搜索定位`)
+    }
 
     try {
       const now = new Date()
@@ -128,6 +115,7 @@ async function main() {
           message,
           page: page.path,
           time: new Date().toISOString(),
+          stackLocations, // 添加解析后的堆栈位置
           ...extraData
         },
         { spaces: 2 }
@@ -145,19 +133,10 @@ async function main() {
   // 1. 监听 console 事件（运行时的 console 输出）
   // 热更新可能创建了新的 console 上下文，但没有重新绑定到 automator
   miniProgram.on('console', async msg => {
-    consoleEventCount++
-    const timestamp = new Date().toLocaleTimeString()
-    console.log(`\n[${timestamp}] 📝 console 事件 #${consoleEventCount}:`, {
-      type: msg.type,
-      text: msg.text,
-      args: msg.args,
-      页面重载次数: pageReloadCount
-    })
-
     if (msg.type === 'error' || msg.type === 'warn') {
       const message = msg.text || msg.args?.join(' ') || ''
       console.log(`🔴 检测到 console.error，准备保存...`)
-      await saveError(msg.type, message, { args: msg.args })
+      await saveError(`console.${msg.type}`, message, { args: msg.args })
     }
   })
 
@@ -185,7 +164,7 @@ async function main() {
   // ✅ 不受页面刷新影响，始终能被监听到
   miniProgram.on('exception', async msg => {
     const message = msg.message || msg.stack || JSON.stringify(msg)
-    await saveError('异常事件 exception', message, {
+    await saveError('exception', message, {
       stack: msg.stack,
       detail: msg
     })
@@ -194,7 +173,7 @@ async function main() {
   // 5. 监听通用错误事件
   miniProgram.on('error', async msg => {
     const message = msg.message || JSON.stringify(msg)
-    await saveError('通用 error', message, { detail: msg })
+    await saveError('system error', message, { detail: msg })
   })
 
   process.on('SIGINT', () => {
