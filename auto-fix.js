@@ -79,7 +79,7 @@ async function saveError(type, message, extraData = {}, pageLogPath = null) {
   // 去重：避免同一错误被多次保存
   const key = type + ':' + message
   if (captured.has(key)) {
-    // console.log(`⚠️ 已捕获过的错误，跳过: ${type}`)
+    console.log(`⚠️ 已捕获过的错误，跳过: ${type}`)
     return
   }
   captured.add(key)
@@ -154,6 +154,15 @@ async function savePageLogs(reason = 'page-change') {
   if (currentPageLogs.length === 0 && reason !== 'error') return null
 
   try {
+    // 实时获取当前页面路径（避免依赖 lastPagePath 导致显示 unknown）
+    let currentPath = lastPagePath || 'unknown'
+    try {
+      const page = await miniProgram.currentPage()
+      currentPath = page.path || currentPath
+    } catch (e) {
+      console.warn(`⚠️ 获取当前页面路径失败，使用缓存路径: ${currentPath}`)
+    }
+
     const dateStr = getDateString()
     const timeStr = getTimeString()
     const logDir = path.join(__dirname, 'error-logs', dateStr, 'page-logs')
@@ -161,14 +170,12 @@ async function savePageLogs(reason = 'page-change') {
 
     // 根据触发原因生成文件名
     const reasonPrefix = reason === 'error' ? 'ERROR' : 'NORMAL'
-    const logFileName = `[${reasonPrefix}]_page-${pageReloadCount}_${
-      lastPagePath?.replace(/\//g, '-') || 'unknown'
-    }_${timeStr}.log`
+    const logFileName = `[${reasonPrefix}]_page-${pageReloadCount}_${currentPath.replace(/\//g, '-')}_${timeStr}.log`
     const logFilePath = path.join(logDir, logFileName)
 
     const logContent = [
       `页面刷新周期 #${pageReloadCount}`,
-      `页面路径: ${lastPagePath || 'unknown'}`,
+      `页面路径: ${currentPath}`,
       `开始时间: ${currentPageStartTime ? new Date(currentPageStartTime).toISOString() : 'unknown'}`,
       `结束时间: ${new Date().toISOString()}`,
       `触发原因: ${reason === 'error' ? '页面出现错误' : '页面变化/离开'}`,
@@ -187,12 +194,6 @@ async function savePageLogs(reason = 'page-change') {
       currentPageLogs.length > 0 ? `${currentPageLogs.length}条` : '空（可能监听器绑定晚于页面初始化）'
     console.log(`📝 已保存页面日志: error-logs/${dateStr}/page-logs/${logFileName} (${logCountInfo})\n`)
 
-    // 如果是错误触发，保存后清空日志，开始新的周期
-    if (reason === 'error') {
-      currentPageLogs = []
-      currentPageStartTime = Date.now()
-    }
-
     // 返回相对路径，供错误日志引用
     return `error-logs/${dateStr}/page-logs/${logFileName}`
   } catch (e) {
@@ -205,7 +206,8 @@ async function savePageLogs(reason = 'page-change') {
 function bindAllListeners() {
   if (!miniProgram) return
 
-  // 1. 修复 console 监听：优化 text 为 undefined 的问题
+  // 1. console 监听：捕获所有类型的日志
+  console.log('🔧 正在绑定 console 监听器...')
   miniProgram.on('console', async msg => {
     // 优化：拼接 args 生成可读的 text，解决 text 为 undefined 的问题
     let text = msg.text
@@ -218,10 +220,11 @@ function bindAllListeners() {
         .join(' ')
     }
     // 打印优化后的 console 信息
-    // console.log(`[Console捕获] type:${msg.type} | text:${text}`)
+    console.log(`✅ [Console捕获] type:${msg.type} | text:${text?.substring(0, 100)}`)
 
-    // 收集普通日志（log/info）到当前页面周期
-    if (msg.type === 'log' || msg.type === 'info') {
+    // 收集所有类型的日志到当前页面周期（不仅仅是 log/info）
+    // 排除 error 和 warn，因为它们会单独保存
+    if (msg.type !== 'error' && msg.type !== 'warn') {
       const timestamp = new Date().toISOString()
       const logLine = `[${timestamp}] [${msg.type.toUpperCase()}] ${text}`
       currentPageLogs.push(logLine)
@@ -234,7 +237,12 @@ function bindAllListeners() {
       // 错误发生时，先保存当前页面周期的日志
       let pageLogPath = null
       if (msg.type === 'error') {
+        // 延迟 100ms，等待其他 console.log 的异步回调执行完成
+        await new Promise(resolve => setTimeout(resolve, 100))
         pageLogPath = await savePageLogs('error')
+        // 保存后清空日志，开始新的周期
+        currentPageLogs = []
+        currentPageStartTime = Date.now()
       }
       await saveError(`console.${msg.type}`, message, { args: msg.args, type: msg.type }, pageLogPath)
     }
@@ -242,35 +250,39 @@ function bindAllListeners() {
 
   // 2. 脚本错误
   miniProgram.on('scripterror', async msg => {
+    // 延迟 100ms，等待其他 console.log 的异步回调执行完成
+    await new Promise(resolve => setTimeout(resolve, 100))
     // 错误发生时，先保存当前页面周期的日志
     const pageLogPath = await savePageLogs('error')
-    const message = msg.message || msg.stack || JSON.stringify(msg)
-    await saveError(
-      'scripterror',
-      message,
-      {
-        stack: msg.stack,
-        filename: msg.filename,
-        lineno: msg.lineno,
-        colno: msg.colno
-      },
-      pageLogPath
-    )
+    const message = msg.message || JSON.stringify(msg)
+    await saveError('scripterror', message, msg, pageLogPath)
+    currentPageLogs = []
+    currentPageStartTime = Date.now()
   })
 
   // 3. 页面错误
   miniProgram.on('pageerror', async msg => {
+    // 延迟 100ms，等待其他 console.log 的异步回调执行完成
+    await new Promise(resolve => setTimeout(resolve, 100))
     // 错误发生时，先保存当前页面周期的日志
     const pageLogPath = await savePageLogs('error')
+    // 保存后清空日志，开始新的周期
+    currentPageLogs = []
+    currentPageStartTime = Date.now()
     const message = msg.message || JSON.stringify(msg)
     await saveError('pageerror', message, { detail: msg }, pageLogPath)
   })
 
   // 4. 异常事件
   miniProgram.on('exception', async msg => {
+    // 延迟 100ms，等待其他 console.log 的异步回调执行完成
+    await new Promise(resolve => setTimeout(resolve, 100))
     // 错误发生时，先保存当前页面周期的日志
     const pageLogPath = await savePageLogs('error')
-    const message = msg.message || msg.stack || JSON.stringify(msg)
+    // 保存后清空日志，开始新的周期
+    currentPageLogs = []
+    currentPageStartTime = Date.now()
+    const message = msg.message || msg.error?.message || JSON.stringify(msg)
     await saveError(
       'exception',
       message,
@@ -284,13 +296,20 @@ function bindAllListeners() {
 
   // 5. 系统错误
   miniProgram.on('error', async msg => {
+    // 延迟 100ms，等待其他 console.log 的异步回调执行完成
+    await new Promise(resolve => setTimeout(resolve, 100))
     // 错误发生时，先保存当前页面周期的日志
     const pageLogPath = await savePageLogs('error')
+    // 保存后清空日志，开始新的周期
+    currentPageLogs = []
+    currentPageStartTime = Date.now()
     const message = msg.message || JSON.stringify(msg)
     await saveError('system error', message, { detail: msg }, pageLogPath)
   })
 
   console.log('✅ 所有事件监听已绑定（持久化模式，不受页面刷新影响）')
+  console.log('📊 监听器列表: console, scripterror, pageerror, exception, error')
+  console.log('⚠️  如果看不到 [Console捕获] 输出，说明小程序的 console 事件没有触发\n')
 }
 
 // 监听页面变化，热更新后重建监听
