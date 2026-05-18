@@ -75,14 +75,21 @@ function parseStackTrace(stack) {
 }
 
 // 保存错误（修复核心：确保目录创建完成后再写入文件）
-async function saveError(type, message, extraData = {}) {
+async function saveError(type, message, extraData = {}, pageLogPath = null) {
+  // 去重：避免同一错误被多次保存
   const key = type + ':' + message
-  if (captured.has(key)) return
-
+  if (captured.has(key)) {
+    // console.log(`⚠️ 已捕获过的错误，跳过: ${type}`)
+    return
+  }
   captured.add(key)
-  console.log(`\n💾 准备保存错误:`)
-  console.log(`  类型: ${type}`)
-  console.log(`  消息: ${message}`)
+
+  console.log(`\n${'='.repeat(60)}`)
+  console.log(`❌ 捕获到错误: ${type}`)
+  console.log(`📝 错误信息: ${message}`)
+  if (pageLogPath) {
+    console.log(`🔗 关联页面日志: ${pageLogPath}`)
+  }
 
   const stackLocations = parseStackTrace(extraData.stack)
   if (stackLocations && stackLocations.length > 0) {
@@ -116,17 +123,21 @@ async function saveError(type, message, extraData = {}) {
 
     // 修复：写入JSON前确认目录存在
     await fs.ensureDir(errorDir)
-    await fs.writeJSON(
+    await fs.writeFile(
       path.join(errorDir, 'error.json'),
-      {
-        type,
-        message,
-        page: pagePath,
-        time: new Date().toISOString(),
-        stackLocations,
-        ...extraData
-      },
-      { spaces: 2 }
+      JSON.stringify(
+        {
+          type,
+          message,
+          page: pagePath,
+          time: new Date().toISOString(),
+          pageLogFile: pageLogPath || null, // 关联的页面日志文件
+          stackLocations,
+          ...extraData
+        },
+        null,
+        2
+      )
     )
     console.log(`✅ 已保存到: error-logs/${dateStr}/${timeStr}/\n`)
   } catch (e) {
@@ -138,8 +149,9 @@ async function saveError(type, message, extraData = {}) {
 }
 
 // 保存当前页面周期的普通日志
-async function savePageLogs() {
-  if (currentPageLogs.length === 0) return
+async function savePageLogs(reason = 'page-change') {
+  // 错误场景下，即使日志为空也要生成文件
+  if (currentPageLogs.length === 0 && reason !== 'error') return null
 
   try {
     const dateStr = getDateString()
@@ -147,7 +159,11 @@ async function savePageLogs() {
     const logDir = path.join(__dirname, 'error-logs', dateStr, 'page-logs')
     await fs.ensureDir(logDir)
 
-    const logFileName = `page-${pageReloadCount}_${lastPagePath?.replace(/\//g, '-') || 'unknown'}_${timeStr}.log`
+    // 根据触发原因生成文件名
+    const reasonPrefix = reason === 'error' ? 'ERROR' : 'NORMAL'
+    const logFileName = `[${reasonPrefix}]_page-${pageReloadCount}_${
+      lastPagePath?.replace(/\//g, '-') || 'unknown'
+    }_${timeStr}.log`
     const logFilePath = path.join(logDir, logFileName)
 
     const logContent = [
@@ -155,30 +171,39 @@ async function savePageLogs() {
       `页面路径: ${lastPagePath || 'unknown'}`,
       `开始时间: ${currentPageStartTime ? new Date(currentPageStartTime).toISOString() : 'unknown'}`,
       `结束时间: ${new Date().toISOString()}`,
+      `触发原因: ${reason === 'error' ? '页面出现错误' : '页面变化/离开'}`,
       `日志数量: ${currentPageLogs.length}`,
       `${'='.repeat(80)}`,
       '',
-      ...currentPageLogs,
+      `📋 捕获到的日志：`,
+      `${'='.repeat(80)}`,
+      '',
+      currentPageLogs.length > 0 ? currentPageLogs.join('\n') : '⚠️ 未捕获到任何日志',
       ''
     ].join('\n')
 
     await fs.writeFile(logFilePath, logContent, 'utf-8')
-    console.log(`📝 已保存页面日志: error-logs/${dateStr}/page-logs/${logFileName} (${currentPageLogs.length}条)\n`)
+    const logCountInfo =
+      currentPageLogs.length > 0 ? `${currentPageLogs.length}条` : '空（可能监听器绑定晚于页面初始化）'
+    console.log(`📝 已保存页面日志: error-logs/${dateStr}/page-logs/${logFileName} (${logCountInfo})\n`)
+
+    // 如果是错误触发，保存后清空日志，开始新的周期
+    if (reason === 'error') {
+      currentPageLogs = []
+      currentPageStartTime = Date.now()
+    }
+
+    // 返回相对路径，供错误日志引用
+    return `error-logs/${dateStr}/page-logs/${logFileName}`
   } catch (e) {
     console.error(`❌ 保存页面日志失败: ${e.message}`)
+    return null
   }
 }
 
-// 核心：绑定所有事件监听（可重复调用，先解绑再绑定）
+// 核心：绑定所有事件监听（只在启动时调用一次）
 function bindAllListeners() {
   if (!miniProgram) return
-
-  // 先移除所有原有监听，避免重复绑定
-  miniProgram.removeAllListeners('console')
-  miniProgram.removeAllListeners('scripterror')
-  miniProgram.removeAllListeners('pageerror')
-  miniProgram.removeAllListeners('exception')
-  miniProgram.removeAllListeners('error')
 
   // 1. 修复 console 监听：优化 text 为 undefined 的问题
   miniProgram.on('console', async msg => {
@@ -193,55 +218,79 @@ function bindAllListeners() {
         .join(' ')
     }
     // 打印优化后的 console 信息
-    console.log(`[Console捕获] type:${msg.type} | text:${text} | args:`, msg.args)
+    // console.log(`[Console捕获] type:${msg.type} | text:${text}`)
 
     // 收集普通日志（log/info）到当前页面周期
     if (msg.type === 'log' || msg.type === 'info') {
       const timestamp = new Date().toISOString()
       const logLine = `[${timestamp}] [${msg.type.toUpperCase()}] ${text}`
       currentPageLogs.push(logLine)
+      console.log(`📝 已收集日志 (当前总数: ${currentPageLogs.length})`)
     }
 
     // 错误和警告仍然单独保存
     if (msg.type === 'error' || msg.type === 'warn') {
       const message = text || JSON.stringify(msg)
-      await saveError(`console.${msg.type}`, message, { args: msg.args, type: msg.type })
+      // 错误发生时，先保存当前页面周期的日志
+      let pageLogPath = null
+      if (msg.type === 'error') {
+        pageLogPath = await savePageLogs('error')
+      }
+      await saveError(`console.${msg.type}`, message, { args: msg.args, type: msg.type }, pageLogPath)
     }
   })
 
   // 2. 脚本错误
   miniProgram.on('scripterror', async msg => {
+    // 错误发生时，先保存当前页面周期的日志
+    const pageLogPath = await savePageLogs('error')
     const message = msg.message || msg.stack || JSON.stringify(msg)
-    await saveError('scripterror', message, {
-      stack: msg.stack,
-      filename: msg.filename,
-      lineno: msg.lineno,
-      colno: msg.colno
-    })
+    await saveError(
+      'scripterror',
+      message,
+      {
+        stack: msg.stack,
+        filename: msg.filename,
+        lineno: msg.lineno,
+        colno: msg.colno
+      },
+      pageLogPath
+    )
   })
 
   // 3. 页面错误
   miniProgram.on('pageerror', async msg => {
+    // 错误发生时，先保存当前页面周期的日志
+    const pageLogPath = await savePageLogs('error')
     const message = msg.message || JSON.stringify(msg)
-    await saveError('pageerror', message, { detail: msg })
+    await saveError('pageerror', message, { detail: msg }, pageLogPath)
   })
 
   // 4. 异常事件
   miniProgram.on('exception', async msg => {
+    // 错误发生时，先保存当前页面周期的日志
+    const pageLogPath = await savePageLogs('error')
     const message = msg.message || msg.stack || JSON.stringify(msg)
-    await saveError('exception', message, {
-      stack: msg.stack,
-      detail: msg
-    })
+    await saveError(
+      'exception',
+      message,
+      {
+        stack: msg.stack,
+        detail: msg
+      },
+      pageLogPath
+    )
   })
 
   // 5. 系统错误
   miniProgram.on('error', async msg => {
+    // 错误发生时，先保存当前页面周期的日志
+    const pageLogPath = await savePageLogs('error')
     const message = msg.message || JSON.stringify(msg)
-    await saveError('system error', message, { detail: msg })
+    await saveError('system error', message, { detail: msg }, pageLogPath)
   })
 
-  console.log('✅ 所有事件监听已重新绑定')
+  console.log('✅ 所有事件监听已绑定（持久化模式，不受页面刷新影响）')
 }
 
 // 监听页面变化，热更新后重建监听
@@ -264,11 +313,10 @@ async function watchPageChange() {
       console.log(`\n${'='.repeat(60)}`)
       console.log(`📄 页面变化 #${pageReloadCount}: ${lastPagePath || '(初始)'} -> ${currentPath}`)
       console.log(`⏰ 时间: ${new Date().toLocaleTimeString()}`)
+      console.log(`📝 当前已收集日志: ${currentPageLogs.length}条`)
+      console.log(`🎯 监听器状态: 持久化监听中（无需重新绑定）`)
       console.log(`${'='.repeat(60)}\n`)
       lastPagePath = currentPath
-
-      // 核心：页面变化（热更新）后重新绑定监听
-      bindAllListeners()
     }
   } catch (e) {
     console.warn(`⚠️ 检测页面变化失败: ${e.message}`)
@@ -277,6 +325,16 @@ async function watchPageChange() {
 
 async function main() {
   console.log('启动监听器...\n')
+
+  // 清空 error-logs 目录
+  const errorLogsDir = path.join(__dirname, 'error-logs')
+  try {
+    await fs.remove(errorLogsDir)
+    console.log('🗑️  已清空 error-logs 目录\n')
+  } catch (e) {
+    console.log('ℹ️  error-logs 目录不存在或已清空\n')
+  }
+
   const autoPort = 9420
 
   // 检测端口
