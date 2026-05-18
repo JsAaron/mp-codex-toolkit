@@ -168,8 +168,21 @@ async function savePageLogs(reason = 'page-change') {
     const logDir = path.join(__dirname, 'error-logs', dateStr, 'page-logs')
     await fs.ensureDir(logDir)
 
-    // 根据触发原因生成文件名
-    const reasonPrefix = reason === 'error' ? 'ERROR' : 'NORMAL'
+    // 根据触发原因生成文件名和前缀
+    let reasonPrefix = 'NORMAL'
+    let reasonText = '页面变化'
+
+    if (reason === 'error') {
+      reasonPrefix = 'ERROR'
+      reasonText = '页面出现错误'
+    } else if (reason === 'page-enter') {
+      reasonPrefix = 'ENTER'
+      reasonText = '进入页面'
+    } else if (reason === 'page-leave') {
+      reasonPrefix = 'LEAVE'
+      reasonText = '离开页面'
+    }
+
     const logFileName = `[${reasonPrefix}]_page-${pageReloadCount}_${currentPath.replace(/\//g, '-')}_${timeStr}.log`
     const logFilePath = path.join(logDir, logFileName)
 
@@ -178,7 +191,7 @@ async function savePageLogs(reason = 'page-change') {
       `页面路径: ${currentPath}`,
       `开始时间: ${currentPageStartTime ? new Date(currentPageStartTime).toISOString() : 'unknown'}`,
       `结束时间: ${new Date().toISOString()}`,
-      `触发原因: ${reason === 'error' ? '页面出现错误' : '页面变化/离开'}`,
+      `触发原因: ${reasonText}`,
       `日志数量: ${currentPageLogs.length}`,
       `${'='.repeat(80)}`,
       '',
@@ -319,9 +332,9 @@ async function watchPageChange() {
     const currentPath = page.path
 
     if (currentPath !== lastPagePath) {
-      // 保存上一个页面周期的日志
+      // 保存上一个页面周期的日志（离开页面时）
       if (pageReloadCount > 0) {
-        await savePageLogs()
+        // await savePageLogs('page-leave')
       }
 
       // 重置当前页面周期的日志
@@ -336,6 +349,11 @@ async function watchPageChange() {
       console.log(`🎯 监听器状态: 持久化监听中（无需重新绑定）`)
       console.log(`${'='.repeat(60)}\n`)
       lastPagePath = currentPath
+
+      // 延迟 3 秒后生成进入页面的日志（等待页面初始化的日志被捕获）
+      setTimeout(async () => {
+        await savePageLogs('page-enter')
+      }, 3000)
     }
   } catch (e) {
     console.warn(`⚠️ 检测页面变化失败: ${e.message}`)
@@ -359,23 +377,26 @@ async function main() {
   // 检测端口
   const isPortUsed = await checkPortIsUsed(autoPort)
   if (isPortUsed) {
-    console.log(`✅ 检测到 ${autoPort} 端口已被占用，开发者工具已运行\n`)
+    console.log(`⚠️  检测到 ${autoPort} 端口已被占用`)
+    console.log(`🔄 尝试重新启动开发者工具自动化模式...\n`)
   } else {
     console.log(`🔄 ${autoPort} 端口未占用，启动开发者工具自动化模式...\n`)
-    cliProcess = spawn(config.cliPath, ['auto', '--project', config.projectPath, '--auto-port', String(autoPort)])
-
-    // 监听CLI输出，便于调试
-    cliProcess.stdout.on('data', data => {
-      console.log(`📢 CLI输出: ${data.toString().trim()}`)
-    })
-    cliProcess.stderr.on('data', data => {
-      console.log(`⚠️ CLI错误输出: ${data.toString().trim()}`)
-    })
   }
 
+  // 无论端口是否被占用，都重新启动自动化模式
+  cliProcess = spawn(config.cliPath, ['auto', '--project', config.projectPath, '--auto-port', String(autoPort)])
+
+  // 监听CLI输出，便于调试
+  cliProcess.stdout.on('data', data => {
+    console.log(`📢 CLI输出: ${data.toString().trim()}`)
+  })
+  cliProcess.stderr.on('data', data => {
+    console.log(`⚠️ CLI错误输出: ${data.toString().trim()}`)
+  })
+
   // 等待工具启动
-  const waitTime = isPortUsed ? 1000 : 10000
-  await new Promise(resolve => setTimeout(resolve, waitTime))
+  console.log('⏳ 等待开发者工具启动...\n')
+  await new Promise(resolve => setTimeout(resolve, 5000))
 
   try {
     // 连接小程序自动化工具
