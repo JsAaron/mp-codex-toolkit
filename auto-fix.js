@@ -1,0 +1,239 @@
+const { spawn } = require('child_process')
+const automator = require('miniprogram-automator')
+const config = require('./config')
+const fs = require('fs-extra')
+const path = require('path')
+const net = require('net')
+
+// 检测端口是否可用
+function checkPortIsUsed(port) {
+  return new Promise(resolve => {
+    const client = new net.Socket()
+    client.setTimeout(3000)
+    client.on('connect', () => {
+      client.destroy()
+      resolve(true)
+    })
+    client.on('timeout', () => {
+      client.destroy()
+      resolve(false)
+    })
+    client.on('error', () => {
+      client.destroy()
+      resolve(false)
+    })
+    client.connect(port, 'localhost')
+  })
+}
+
+// 全局变量
+let miniProgram = null
+let cliProcess = null
+const captured = new Set() // 全局去重集合，避免热更新后重复捕获
+let pageReloadCount = 0
+let lastPagePath = null
+
+// 解析堆栈信息
+function parseStackTrace(stack) {
+  if (!stack) return null
+  const lines = stack.split('\n')
+  const locations = []
+  for (const line of lines) {
+    const match = line.match(/at\s+(?:(.+?)\s+\()?(.+?):(\d+):(\d+)\)?/)
+    if (match) {
+      const [, funcName, file, line, column] = match
+      locations.push({
+        function: funcName || '(anonymous)',
+        file: file.replace(/^.*[\/\\]/, ''),
+        line: parseInt(line),
+        column: parseInt(column),
+        fullPath: file
+      })
+    }
+  }
+  return locations.length > 0 ? locations : null
+}
+
+// 保存错误
+async function saveError(type, message, extraData = {}) {
+  const key = type + ':' + message
+  if (captured.has(key)) return
+
+  captured.add(key)
+  console.log(`\n💾 准备保存错误:`)
+  console.log(`  类型: ${type}`)
+  console.log(`  消息: ${message}`)
+
+  const stackLocations = parseStackTrace(extraData.stack)
+  if (stackLocations && stackLocations.length > 0) {
+    console.log(`📍 错误位置（编译后的行号）:`)
+    stackLocations.slice(0, 3).forEach((loc, idx) => {
+      console.log(`   ${idx + 1}. ${loc.file}:${loc.line}:${loc.column} (${loc.function})`)
+    })
+  }
+
+  try {
+    const now = new Date()
+    const timestamp = `${now.getHours()}-${now.getMinutes()}-${now.getSeconds()}`
+    const errorDir = path.join(__dirname, 'error-logs', timestamp)
+    await fs.ensureDir(errorDir)
+
+    // 兼容页面可能未加载的情况
+    let pagePath = 'unknown'
+    try {
+      const page = await miniProgram.currentPage()
+      pagePath = page.path
+      const screenshot = await miniProgram.screenshot()
+      await fs.writeFile(path.join(errorDir, 'screenshot.png'), Buffer.from(screenshot, 'base64'))
+    } catch (e) {
+      console.warn(`⚠️ 获取页面/截图失败: ${e.message}`)
+    }
+
+    await fs.writeJSON(
+      path.join(errorDir, 'error.json'),
+      {
+        type,
+        message,
+        page: pagePath,
+        time: new Date().toISOString(),
+        stackLocations,
+        ...extraData
+      },
+      { spaces: 2 }
+    )
+    console.log(`✅ 已保存到: error-logs/${timestamp}/\n`)
+  } catch (e) {
+    console.error(`❌ 保存错误日志失败: ${e.message}`)
+  }
+}
+
+// 核心：绑定所有事件监听（可重复调用，先解绑再绑定）
+function bindAllListeners() {
+  if (!miniProgram) return
+
+  // 先移除所有原有监听，避免重复绑定
+  miniProgram.removeAllListeners('console')
+  miniProgram.removeAllListeners('scripterror')
+  miniProgram.removeAllListeners('pageerror')
+  miniProgram.removeAllListeners('exception')
+  miniProgram.removeAllListeners('error')
+
+  // 1. 修复 console 监听：捕获所有 console 类型（包括 log/info/warn/error）
+  miniProgram.on('console', async msg => {
+    // 打印原始 console 信息，确保能捕获到
+    console.log(`[Console捕获] type:${msg.type} | text:${msg.text} | args:`, msg.args)
+
+    // 不仅监听 error/warn，也可根据需要监听 log/info
+    if (['error', 'warn', 'log', 'info'].includes(msg.type)) {
+      const message = msg.text || (msg.args && msg.args.join(' ')) || JSON.stringify(msg)
+      await saveError(`console.${msg.type}`, message, { args: msg.args, type: msg.type })
+    }
+  })
+
+  // 2. 脚本错误
+  miniProgram.on('scripterror', async msg => {
+    const message = msg.message || msg.stack || JSON.stringify(msg)
+    await saveError('scripterror', message, {
+      stack: msg.stack,
+      filename: msg.filename,
+      lineno: msg.lineno,
+      colno: msg.colno
+    })
+  })
+
+  // 3. 页面错误
+  miniProgram.on('pageerror', async msg => {
+    const message = msg.message || JSON.stringify(msg)
+    await saveError('pageerror', message, { detail: msg })
+  })
+
+  // 4. 异常事件
+  miniProgram.on('exception', async msg => {
+    const message = msg.message || msg.stack || JSON.stringify(msg)
+    await saveError('exception', message, {
+      stack: msg.stack,
+      detail: msg
+    })
+  })
+
+  // 5. 系统错误
+  miniProgram.on('error', async msg => {
+    const message = msg.message || JSON.stringify(msg)
+    await saveError('system error', message, { detail: msg })
+  })
+
+  console.log('✅ 所有事件监听已重新绑定')
+}
+
+// 监听页面变化，热更新后重建监听
+async function watchPageChange() {
+  try {
+    const page = await miniProgram.currentPage()
+    const currentPath = page.path
+
+    if (currentPath !== lastPagePath) {
+      pageReloadCount++
+      console.log(`\n${'='.repeat(60)}`)
+      console.log(`📄 页面变化 #${pageReloadCount}: ${lastPagePath || '(初始)'} -> ${currentPath}`)
+      console.log(`⏰ 时间: ${new Date().toLocaleTimeString()}`)
+      console.log(`${'='.repeat(60)}\n`)
+      lastPagePath = currentPath
+
+      // 核心：页面变化（热更新）后重新绑定监听
+      bindAllListeners()
+    }
+  } catch (e) {
+    console.warn(`⚠️ 检测页面变化失败: ${e.message}`)
+  }
+}
+
+async function main() {
+  console.log('启动监听器...\n')
+  const autoPort = 9420
+
+  // 检测端口
+  const isPortUsed = await checkPortIsUsed(autoPort)
+  if (isPortUsed) {
+    console.log(`✅ 检测到 ${autoPort} 端口已被占用，开发者工具已运行\n`)
+  } else {
+    console.log(`🔄 ${autoPort} 端口未占用，启动开发者工具自动化模式...\n`)
+    cliProcess = spawn(config.cliPath, ['auto', '--project', config.projectPath, '--auto-port', String(autoPort)])
+
+    // 监听CLI输出，便于调试
+    cliProcess.stdout.on('data', data => {
+      console.log(`📢 CLI输出: ${data.toString().trim()}`)
+    })
+    cliProcess.stderr.on('data', data => {
+      console.log(`⚠️ CLI错误输出: ${data.toString().trim()}`)
+    })
+  }
+
+  // 等待工具启动
+  const waitTime = isPortUsed ? 1000 : 10000
+  await new Promise(resolve => setTimeout(resolve, waitTime))
+
+  try {
+    // 连接小程序自动化工具
+    miniProgram = await automator.connect({ wsEndpoint: `ws://localhost:${autoPort}` })
+    console.log('✅ 已连接到开发者工具\n')
+
+    // 初始化绑定监听
+    bindAllListeners()
+
+    // 轮询检测页面变化（热更新）
+    setInterval(watchPageChange, 500)
+
+    // 监听退出信号
+    process.on('SIGINT', () => {
+      if (miniProgram) miniProgram.disconnect()
+      if (cliProcess) cliProcess.kill()
+      process.exit(0)
+    })
+  } catch (e) {
+    console.error(`❌ 连接开发者工具失败: ${e.message}`)
+    if (cliProcess) cliProcess.kill()
+    process.exit(1)
+  }
+}
+
+main().catch(console.error)

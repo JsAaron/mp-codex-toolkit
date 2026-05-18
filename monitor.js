@@ -32,7 +32,6 @@ async function main() {
         console.log(`\n${'='.repeat(60)}`)
         console.log(`📄 页面变化 #${pageReloadCount}: ${lastPagePath || '(初始)'} -> ${currentPath}`)
         console.log(`⏰ 时间: ${new Date().toLocaleTimeString()}`)
-        console.log(`✅ 事件监听器状态: 正常运行中`)
         console.log(`${'='.repeat(60)}\n`)
         lastPagePath = currentPath
       }
