@@ -32,6 +32,26 @@ let cliProcess = null
 const captured = new Set() // 全局去重集合，避免热更新后重复捕获
 let pageReloadCount = 0
 let lastPagePath = null
+let currentPageLogs = [] // 当前页面周期的普通日志
+let currentPageStartTime = null // 当前页面周期开始时间
+
+// 获取当前日期字符串 YYYY-MM-DD
+function getDateString() {
+  const now = new Date()
+  const year = now.getFullYear()
+  const month = String(now.getMonth() + 1).padStart(2, '0')
+  const day = String(now.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+// 获取时间戳字符串 HH-MM-SS
+function getTimeString() {
+  const now = new Date()
+  const hours = String(now.getHours()).padStart(2, '0')
+  const minutes = String(now.getMinutes()).padStart(2, '0')
+  const seconds = String(now.getSeconds()).padStart(2, '0')
+  return `${hours}-${minutes}-${seconds}`
+}
 
 // 解析堆栈信息
 function parseStackTrace(stack) {
@@ -54,7 +74,7 @@ function parseStackTrace(stack) {
   return locations.length > 0 ? locations : null
 }
 
-// 保存错误
+// 保存错误（修复核心：确保目录创建完成后再写入文件）
 async function saveError(type, message, extraData = {}) {
   const key = type + ':' + message
   if (captured.has(key)) return
@@ -73,10 +93,13 @@ async function saveError(type, message, extraData = {}) {
   }
 
   try {
-    const now = new Date()
-    const timestamp = `${now.getHours()}-${now.getMinutes()}-${now.getSeconds()}`
-    const errorDir = path.join(__dirname, 'error-logs', timestamp)
+    const dateStr = getDateString()
+    const timeStr = getTimeString()
+    const errorDir = path.join(__dirname, 'error-logs', dateStr, timeStr)
+
+    // 关键修复：确保目录同步创建完成（使用 await 等待 ensureDir 执行完毕）
     await fs.ensureDir(errorDir)
+    console.log(`📁 日志目录已创建: ${errorDir}`)
 
     // 兼容页面可能未加载的情况
     let pagePath = 'unknown'
@@ -84,11 +107,15 @@ async function saveError(type, message, extraData = {}) {
       const page = await miniProgram.currentPage()
       pagePath = page.path
       const screenshot = await miniProgram.screenshot()
+      // 修复：写入截图前再次确认目录存在（双重保障）
+      await fs.ensureDir(errorDir)
       await fs.writeFile(path.join(errorDir, 'screenshot.png'), Buffer.from(screenshot, 'base64'))
     } catch (e) {
       console.warn(`⚠️ 获取页面/截图失败: ${e.message}`)
     }
 
+    // 修复：写入JSON前确认目录存在
+    await fs.ensureDir(errorDir)
     await fs.writeJSON(
       path.join(errorDir, 'error.json'),
       {
@@ -101,9 +128,44 @@ async function saveError(type, message, extraData = {}) {
       },
       { spaces: 2 }
     )
-    console.log(`✅ 已保存到: error-logs/${timestamp}/\n`)
+    console.log(`✅ 已保存到: error-logs/${dateStr}/${timeStr}/\n`)
   } catch (e) {
     console.error(`❌ 保存错误日志失败: ${e.message}`)
+    // 可选：捕获错误后移除已添加的key，避免永久去重
+    const key = type + ':' + message
+    captured.delete(key)
+  }
+}
+
+// 保存当前页面周期的普通日志
+async function savePageLogs() {
+  if (currentPageLogs.length === 0) return
+
+  try {
+    const dateStr = getDateString()
+    const timeStr = getTimeString()
+    const logDir = path.join(__dirname, 'error-logs', dateStr, 'page-logs')
+    await fs.ensureDir(logDir)
+
+    const logFileName = `page-${pageReloadCount}_${lastPagePath?.replace(/\//g, '-') || 'unknown'}_${timeStr}.log`
+    const logFilePath = path.join(logDir, logFileName)
+
+    const logContent = [
+      `页面刷新周期 #${pageReloadCount}`,
+      `页面路径: ${lastPagePath || 'unknown'}`,
+      `开始时间: ${currentPageStartTime ? new Date(currentPageStartTime).toISOString() : 'unknown'}`,
+      `结束时间: ${new Date().toISOString()}`,
+      `日志数量: ${currentPageLogs.length}`,
+      `${'='.repeat(80)}`,
+      '',
+      ...currentPageLogs,
+      ''
+    ].join('\n')
+
+    await fs.writeFile(logFilePath, logContent, 'utf-8')
+    console.log(`📝 已保存页面日志: error-logs/${dateStr}/page-logs/${logFileName} (${currentPageLogs.length}条)\n`)
+  } catch (e) {
+    console.error(`❌ 保存页面日志失败: ${e.message}`)
   }
 }
 
@@ -118,14 +180,31 @@ function bindAllListeners() {
   miniProgram.removeAllListeners('exception')
   miniProgram.removeAllListeners('error')
 
-  // 1. 修复 console 监听：捕获所有 console 类型（包括 log/info/warn/error）
+  // 1. 修复 console 监听：优化 text 为 undefined 的问题
   miniProgram.on('console', async msg => {
-    // 打印原始 console 信息，确保能捕获到
-    console.log(`[Console捕获] type:${msg.type} | text:${msg.text} | args:`, msg.args)
+    // 优化：拼接 args 生成可读的 text，解决 text 为 undefined 的问题
+    let text = msg.text
+    if (!text && msg.args && msg.args.length > 0) {
+      text = msg.args
+        .map(arg => {
+          if (typeof arg === 'object') return JSON.stringify(arg)
+          return String(arg)
+        })
+        .join(' ')
+    }
+    // 打印优化后的 console 信息
+    console.log(`[Console捕获] type:${msg.type} | text:${text} | args:`, msg.args)
 
-    // 不仅监听 error/warn，也可根据需要监听 log/info
-    if (['error', 'warn', 'log', 'info'].includes(msg.type)) {
-      const message = msg.text || (msg.args && msg.args.join(' ')) || JSON.stringify(msg)
+    // 收集普通日志（log/info）到当前页面周期
+    if (msg.type === 'log' || msg.type === 'info') {
+      const timestamp = new Date().toISOString()
+      const logLine = `[${timestamp}] [${msg.type.toUpperCase()}] ${text}`
+      currentPageLogs.push(logLine)
+    }
+
+    // 错误和警告仍然单独保存
+    if (msg.type === 'error' || msg.type === 'warn') {
+      const message = text || JSON.stringify(msg)
       await saveError(`console.${msg.type}`, message, { args: msg.args, type: msg.type })
     }
   })
@@ -172,7 +251,16 @@ async function watchPageChange() {
     const currentPath = page.path
 
     if (currentPath !== lastPagePath) {
+      // 保存上一个页面周期的日志
+      if (pageReloadCount > 0) {
+        await savePageLogs()
+      }
+
+      // 重置当前页面周期的日志
+      currentPageLogs = []
+      currentPageStartTime = Date.now()
       pageReloadCount++
+
       console.log(`\n${'='.repeat(60)}`)
       console.log(`📄 页面变化 #${pageReloadCount}: ${lastPagePath || '(初始)'} -> ${currentPath}`)
       console.log(`⏰ 时间: ${new Date().toLocaleTimeString()}`)
@@ -224,9 +312,13 @@ async function main() {
     setInterval(watchPageChange, 500)
 
     // 监听退出信号
-    process.on('SIGINT', () => {
+    process.on('SIGINT', async () => {
+      console.log('\n\n🛑 收到退出信号，正在保存日志...')
+      // 保存最后一个页面周期的日志
+      await savePageLogs()
       if (miniProgram) miniProgram.disconnect()
       if (cliProcess) cliProcess.kill()
+      console.log('✅ 日志已保存，程序退出')
       process.exit(0)
     })
   } catch (e) {
