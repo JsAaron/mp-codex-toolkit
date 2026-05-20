@@ -20,7 +20,7 @@ auto-fix-agent/
 │   ├── test-capture.js          # 测试工具
 │   └── test-console-event.js    # 控制台事件测试
 │
-├── error-logs/           # 错误日志目录（自动生成）
+├── debug-logs/           # 错误日志目录（自动生成）
 ├── start.sh              # 主启动脚本
 └── README.md             # 本文件
 ```
@@ -62,7 +62,7 @@ node auto-fix.js
 - 自动运行小程序
 - 捕获运行时错误
 - 生成错误日志和截图
-- 保存到 error-logs 目录
+- 保存到 debug-logs 目录
 
 ## 配置
 

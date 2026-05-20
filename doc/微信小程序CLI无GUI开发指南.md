@@ -240,8 +240,8 @@ node auto-fix.js
 # ✅ 已连接到开发者工具
 # [当发生错误时]
 # ❌ 捕获到错误: exception
-# 📁 日志目录已创建: /path/to/error-logs/2026-05-18/14-18-31
-# ✅ 已保存到: error-logs/2026-05-18/14-18-31/
+# 📁 日志目录已创建: /path/to/debug-logs/2026-05-18/14-18-31
+# ✅ 已保存到: debug-logs/2026-05-18/14-18-31/
 #     ├── screenshot.png  ← 自动截图
 #     └── error.json      ← 错误信息
 ```
@@ -296,7 +296,7 @@ node deploy.js build
 timeout 60 node auto-fix.js
 
 # 5. 检查是否有错误
-if [ -d "error-logs" ]; then
+if [ -d "debug-logs" ]; then
   echo "❌ 测试发现错误，停止部署"
   exit 1
 fi

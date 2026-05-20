@@ -3,17 +3,21 @@ module.exports = {
 
   cliPath: '/Applications/wechatwebdevtools.app/Contents/MacOS/cli',
 
-  aiConfig: {
-    apiKey: process.env.OPENAI_API_KEY || '',
-    baseURL: 'https://api.openai.com/v1',
-    model: 'gpt-4o'
+  // 自动化端口配置
+  autoPort: 10984,
+
+  // 连接配置
+  connection: {
+    timeout: 10000,
+    maxRetries: 3,
+    retryDelay: 3000
   },
 
-  maxRetries: 3,
-
-  waitTime: 3000,
-
-  automatorPort: 59092,
+  // 错误日志配置
+  errorLogs: {
+    dir: 'debug-logs',
+    clearOnStart: true
+  },
 
   server: {
     enabled: true,

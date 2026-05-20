@@ -82,13 +82,13 @@ tail -20 git-monitor.log
 2. **拉取代码**：发现更新后自动执行 `git pull`
 3. **启动测试**：拉取成功后等待 2 秒，自动启动 `auto-fix.js`
 4. **错误检测**：`auto-fix.js` 会自动运行小程序并捕获错误
-5. **保存日志**：所有错误和日志保存到 `error-logs` 目录
+5. **保存日志**：所有错误和日志保存到 `debug-logs` 目录
 
 ## 日志说明
 
 - `git-monitor.log` - 监控日志（检测、拉取记录）
 - `monitor-output.log` - 程序输出日志（仅后台模式）
-- `error-logs/` - auto-fix 生成的错误日志和截图
+- `debug-logs/` - auto-fix 生成的错误日志和截图
 
 ## 常见问题
 

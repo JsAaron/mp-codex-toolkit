@@ -103,7 +103,7 @@ async function saveError(type, message, extraData = {}, pageLogPath = null) {
   try {
     const dateStr = getDateString()
     const timeStr = getTimeString()
-    const errorDir = path.join(__dirname, 'error-logs', dateStr, timeStr)
+    const errorDir = path.join(__dirname, config.errorLogs.dir, dateStr, timeStr)
 
     // 关键修复：确保目录同步创建完成（使用 await 等待 ensureDir 执行完毕）
     await fs.ensureDir(errorDir)
@@ -140,10 +140,10 @@ async function saveError(type, message, extraData = {}, pageLogPath = null) {
         2
       )
     )
-    console.log(`✅ 已保存到: error-logs/${dateStr}/${timeStr}/\n`)
+    console.log(`✅ 已保存到: ${config.errorLogs.dir}/${dateStr}/${timeStr}/\n`)
 
     if (config.server.uploadOnError) {
-      const errorLogsDir = path.join(__dirname, 'error-logs')
+      const errorLogsDir = path.join(__dirname, config.errorLogs.dir)
       await uploadErrorLogs(errorLogsDir)
     }
   } catch (e) {
@@ -171,7 +171,7 @@ async function savePageLogs(reason = 'page-change') {
 
     const dateStr = getDateString()
     const timeStr = getTimeString()
-    const logDir = path.join(__dirname, 'error-logs', dateStr, 'page-logs')
+    const logDir = path.join(__dirname, config.errorLogs.dir, dateStr, 'page-logs')
     await fs.ensureDir(logDir)
 
     // 根据触发原因生成文件名和前缀
@@ -211,10 +211,10 @@ async function savePageLogs(reason = 'page-change') {
     await fs.writeFile(logFilePath, logContent, 'utf-8')
     const logCountInfo =
       currentPageLogs.length > 0 ? `${currentPageLogs.length}条` : '空（可能监听器绑定晚于页面初始化）'
-    console.log(`📝 已保存页面日志: error-logs/${dateStr}/page-logs/${logFileName} (${logCountInfo})\n`)
+    console.log(`📝 已保存页面日志: ${config.errorLogs.dir}/${dateStr}/page-logs/${logFileName} (${logCountInfo})\n`)
 
     // 返回相对路径，供错误日志引用
-    return `error-logs/${dateStr}/page-logs/${logFileName}`
+    return `${config.errorLogs.dir}/${dateStr}/page-logs/${logFileName}`
   } catch (e) {
     console.error(`❌ 保存页面日志失败: ${e.message}`)
     return null
@@ -358,10 +358,10 @@ async function watchPageChange() {
       console.log(`${'='.repeat(60)}\n`)
       lastPagePath = currentPath
 
-      // 延迟 3 秒后生成进入页面的日志（等待页面初始化的日志被捕获）
+      // 延迟后生成进入页面的日志（等待页面初始化的日志被捕获）
       setTimeout(async () => {
         await savePageLogs('page-enter')
-      }, 3000)
+      }, config.pageWatch.refreshDelay)
     }
   } catch (e) {
     console.warn(`⚠️ 检测页面变化失败: ${e.message}`)
@@ -371,22 +371,24 @@ async function watchPageChange() {
 async function main() {
   console.log('启动微信小程序监听器...\n')
 
-  // 清空 error-logs 目录
-  const errorLogsDir = path.join(__dirname, 'error-logs')
-  try {
-    await fs.remove(errorLogsDir)
-    console.log('🗑️  已清空 error-logs 目录\n')
-  } catch (e) {
-    console.log('ℹ️  error-logs 目录不存在或已清空\n')
+  // 清空 debug-logs 目录
+  const errorLogsDir = path.join(__dirname, config.errorLogs.dir)
+  if (config.errorLogs.clearOnStart) {
+    try {
+      await fs.remove(errorLogsDir)
+      console.log('🗑️  已清空 debug-logs 目录\n')
+    } catch (e) {
+      console.log('ℹ️  debug-logs 目录不存在或已清空\n')
+    }
   }
 
-  const autoPort = 9420
+  const autoPort = config.autoPort
 
   // 检测端口
   const isPortUsed = await checkPortIsUsed(autoPort)
   if (isPortUsed) {
     console.log(`✅ 检测到 ${autoPort} 端口已被占用，开发者工具已启动`)
-    console.log(`� 直接连接到现有的自动化服务...\n`)
+    console.log(`🔗 直接连接到现有的自动化服务...\n`)
   } else {
     console.log(`🔄 ${autoPort} 端口未占用，启动开发者工具自动化模式...\n`)
 
@@ -404,33 +406,20 @@ async function main() {
 
   // 等待开发者工具准备就绪
   console.log('⏳ 等待开发者工具准备就绪...\n')
-  await new Promise(resolve => setTimeout(resolve, 3000))
+  await new Promise(resolve => setTimeout(resolve, config.connection.retryDelay))
 
   console.log('🔗 正在连接到微信开发者工具...\n')
 
   // 连接重试机制
-  let connected = false
-  let retryCount = 0
-  const maxRetries = 5
-
-  while (!connected && retryCount < maxRetries) {
-    try {
-      miniProgram = await automator.connect({
-        wsEndpoint: `ws://localhost:${autoPort}`,
-        timeout: 10000
-      })
-      connected = true
-      console.log('✅ 已连接到开发者工具\n')
-    } catch (error) {
-      retryCount++
-      console.log(`⚠️ 连接失败 (${retryCount}/${maxRetries}): ${error.message}`)
-      if (retryCount < maxRetries) {
-        console.log(`🔄 ${3} 秒后重试...\n`)
-        await new Promise(resolve => setTimeout(resolve, 3000))
-      } else {
-        throw new Error(`连接失败，已重试 ${maxRetries} 次`)
-      }
-    }
+  try {
+    miniProgram = await automator.connect({
+      wsEndpoint: `ws://localhost:${autoPort}`,
+      timeout: config.connection.timeout
+    })
+    console.log('✅ 已连接到开发者工具\n')
+  } catch (error) {
+    retryCount++
+    console.log(`⚠️ 连接失败 (${retryCount}/${maxRetries}): ${error.message}`)
   }
 
   try {
@@ -444,20 +433,22 @@ async function main() {
     try {
       console.log('🔄 主动刷新页面以捕获初始化错误...\n')
       const page = await miniProgram.currentPage()
-      console.log(`📄 当前页面: ${page.path}`)
+      const pagePath = page.path
+      console.log(`📄 当前页面: ${pagePath}`)
 
-      // 重新加载页面
-      await miniProgram.reLaunch({ url: `/${page.path}` })
+      // 重新加载页面(路径需要以 / 开头)
+      const url = pagePath.startsWith('/') ? pagePath : `/${pagePath}`
+      await miniProgram.reLaunch(url)
       console.log('✅ 页面已刷新，等待错误捕获...\n')
 
       // 等待页面加载完成
-      await new Promise(resolve => setTimeout(resolve, 3000))
+      await new Promise(resolve => setTimeout(resolve, config.pageWatch.refreshDelay))
     } catch (e) {
       console.warn(`⚠️ 刷新页面失败: ${e.message}`)
     }
 
     // 轮询检测页面变化（热更新）
-    setInterval(watchPageChange, 500)
+    setInterval(watchPageChange, config.pageWatch.interval)
 
     // 监听退出信号
     process.on('SIGINT', async () => {
