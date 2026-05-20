@@ -4,6 +4,7 @@ const config = require('./config')
 const fs = require('fs-extra')
 const path = require('path')
 const net = require('net')
+const { uploadErrorLogs } = require('./upload-to-server')
 
 // 检测端口是否可用
 function checkPortIsUsed(port) {
@@ -140,6 +141,11 @@ async function saveError(type, message, extraData = {}, pageLogPath = null) {
       )
     )
     console.log(`✅ 已保存到: error-logs/${dateStr}/${timeStr}/\n`)
+
+    if (config.server.uploadOnError) {
+      const errorLogsDir = path.join(__dirname, 'error-logs')
+      await uploadErrorLogs(errorLogsDir)
+    }
   } catch (e) {
     console.error(`❌ 保存错误日志失败: ${e.message}`)
     // 可选：捕获错误后移除已添加的key，避免永久去重
@@ -232,7 +238,9 @@ function bindAllListeners() {
         })
         .join(' ')
     }
-    // 打印优化后的 console 信息
+
+    // 打印完整的 msg 对象用于调试
+    console.log(`\n[Console事件] 完整信息:`, JSON.stringify(msg, null, 2))
     console.log(`✅ [Console捕获] type:${msg.type} | text:${text?.substring(0, 100)}`)
 
     // 收集所有类型的日志到当前页面周期（不仅仅是 log/info）
@@ -361,7 +369,7 @@ async function watchPageChange() {
 }
 
 async function main() {
-  console.log('启动监听器...\n')
+  console.log('启动微信小程序监听器...\n')
 
   // 清空 error-logs 目录
   const errorLogsDir = path.join(__dirname, 'error-logs')
@@ -377,34 +385,76 @@ async function main() {
   // 检测端口
   const isPortUsed = await checkPortIsUsed(autoPort)
   if (isPortUsed) {
-    console.log(`⚠️  检测到 ${autoPort} 端口已被占用`)
-    console.log(`🔄 尝试重新启动开发者工具自动化模式...\n`)
+    console.log(`✅ 检测到 ${autoPort} 端口已被占用，开发者工具已启动`)
+    console.log(`� 直接连接到现有的自动化服务...\n`)
   } else {
     console.log(`🔄 ${autoPort} 端口未占用，启动开发者工具自动化模式...\n`)
+
+    // 只在端口未占用时启动开发者工具
+    cliProcess = spawn(config.cliPath, ['auto', '--project', config.projectPath, '--auto-port', String(autoPort)])
+
+    // 监听CLI输出，便于调试
+    cliProcess.stdout.on('data', data => {
+      console.log(`📢 CLI输出: ${data.toString().trim()}`)
+    })
+    cliProcess.stderr.on('data', data => {
+      console.log(`⚠️ CLI错误输出: ${data.toString().trim()}`)
+    })
   }
 
-  // 无论端口是否被占用，都重新启动自动化模式
-  cliProcess = spawn(config.cliPath, ['auto', '--project', config.projectPath, '--auto-port', String(autoPort)])
+  // 等待开发者工具准备就绪
+  console.log('⏳ 等待开发者工具准备就绪...\n')
+  await new Promise(resolve => setTimeout(resolve, 3000))
 
-  // 监听CLI输出，便于调试
-  cliProcess.stdout.on('data', data => {
-    console.log(`📢 CLI输出: ${data.toString().trim()}`)
-  })
-  cliProcess.stderr.on('data', data => {
-    console.log(`⚠️ CLI错误输出: ${data.toString().trim()}`)
-  })
+  console.log('🔗 正在连接到微信开发者工具...\n')
 
-  // 等待工具启动
-  console.log('⏳ 等待开发者工具启动...\n')
-  await new Promise(resolve => setTimeout(resolve, 5000))
+  // 连接重试机制
+  let connected = false
+  let retryCount = 0
+  const maxRetries = 5
+
+  while (!connected && retryCount < maxRetries) {
+    try {
+      miniProgram = await automator.connect({
+        wsEndpoint: `ws://localhost:${autoPort}`,
+        timeout: 10000
+      })
+      connected = true
+      console.log('✅ 已连接到开发者工具\n')
+    } catch (error) {
+      retryCount++
+      console.log(`⚠️ 连接失败 (${retryCount}/${maxRetries}): ${error.message}`)
+      if (retryCount < maxRetries) {
+        console.log(`🔄 ${3} 秒后重试...\n`)
+        await new Promise(resolve => setTimeout(resolve, 3000))
+      } else {
+        throw new Error(`连接失败，已重试 ${maxRetries} 次`)
+      }
+    }
+  }
 
   try {
-    // 连接小程序自动化工具
-    miniProgram = await automator.connect({ wsEndpoint: `ws://localhost:${autoPort}` })
-    console.log('✅ 已连接到开发者工具\n')
-
-    // 初始化绑定监听
+    // 立即绑定监听器（在页面加载前）
+    console.log('🔧 立即绑定所有监听器...\n')
     bindAllListeners()
+
+    console.log('✅ 监听器已就绪，开始监控...\n')
+
+    // 主动刷新页面，触发错误重现（用于测试）
+    try {
+      console.log('🔄 主动刷新页面以捕获初始化错误...\n')
+      const page = await miniProgram.currentPage()
+      console.log(`📄 当前页面: ${page.path}`)
+
+      // 重新加载页面
+      await miniProgram.reLaunch({ url: `/${page.path}` })
+      console.log('✅ 页面已刷新，等待错误捕获...\n')
+
+      // 等待页面加载完成
+      await new Promise(resolve => setTimeout(resolve, 3000))
+    } catch (e) {
+      console.warn(`⚠️ 刷新页面失败: ${e.message}`)
+    }
 
     // 轮询检测页面变化（热更新）
     setInterval(watchPageChange, 500)

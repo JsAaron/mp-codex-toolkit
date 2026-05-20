@@ -159,23 +159,11 @@ function startAutoFix() {
   log('🚀 启动 auto-fix 进程...')
   log(`📝 脚本路径: ${config.autoFix.scriptPath}`)
 
+  const autoFixDir = path.dirname(config.autoFix.scriptPath)
+
   autoFixProcess = spawn('node', [config.autoFix.scriptPath], {
-    cwd: __dirname,
-    stdio: ['ignore', 'pipe', 'pipe']
-  })
-
-  autoFixProcess.stdout.on('data', data => {
-    const output = data.toString().trim()
-    if (output) {
-      console.log(`[AutoFix] ${output}`)
-    }
-  })
-
-  autoFixProcess.stderr.on('data', data => {
-    const output = data.toString().trim()
-    if (output) {
-      console.error(`[AutoFix Error] ${output}`)
-    }
+    cwd: autoFixDir,
+    stdio: 'inherit'
   })
 
   autoFixProcess.on('exit', (code, signal) => {
@@ -203,7 +191,6 @@ async function processRepository(repo, retryCount = 0) {
 
   try {
     log(`[${name}] 开始检测...`)
-
     const hasLocalChanges = await checkLocalChanges(repoPath)
     if (hasLocalChanges) {
       log(`[${name}] ⚠️  检测到本地未提交的修改，跳过拉取`, 'WARN')

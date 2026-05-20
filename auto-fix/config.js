@@ -13,5 +13,14 @@ module.exports = {
 
   waitTime: 3000,
 
-  automatorPort: 59092
+  automatorPort: 59092,
+
+  server: {
+    enabled: true,
+    host: '43.106.0.58',
+    port: 22,
+    user: 'chenwen',
+    remotePath: '/home/chenwen/repository/gaofenwx/debug',
+    uploadOnError: true
+  }
 }
