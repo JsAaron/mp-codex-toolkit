@@ -1,0 +1,19 @@
+{
+  "interval": 10000,
+  "repositories": [
+    {
+      "name": "gaofenwx",
+      "path": "/Users/chenwen/work/长沙新学堂项目/项目-高分派/微信/gaofenwx",
+      "branch": "chenwen-codex",
+      "enabled": true
+    }
+  ],
+  "logFile": "/Users/chenwen/work/长沙新学堂项目/项目-高分派/微信/auto-fix-agent/git-monitor/git-monitor.log",
+  "retryTimes": 3,
+  "retryDelay": 5000,
+  "autoFix": {
+    "enabled": true,
+    "scriptPath": "/Users/chenwen/work/长沙新学堂项目/项目-高分派/微信/auto-fix-agent/auto-fix/auto-fix.js",
+    "runOnPullSuccess": true
+  }
+}
