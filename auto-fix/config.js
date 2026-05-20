@@ -19,12 +19,20 @@ module.exports = {
     clearOnStart: true
   },
 
+  // 页面监控配置
+  pageWatch: {
+    interval: 500,
+    autoRefresh: true,
+    refreshDelay: 3000
+  },
+
   server: {
     enabled: true,
     host: '43.106.0.58',
     port: 22,
     user: 'chenwen',
     remotePath: '/home/chenwen/repository/gaofenwx/debug',
+    identityFile: '/Users/chenwen/.ssh/chenwen_key',
     uploadOnError: true
   }
 }

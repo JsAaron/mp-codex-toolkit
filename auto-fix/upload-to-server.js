@@ -9,7 +9,7 @@ async function uploadToServer(localPath) {
   }
 
   return new Promise((resolve, reject) => {
-    const { host, port, user, remotePath } = config.server
+    const { host, port, user, remotePath, identityFile } = config.server
 
     console.log('\n📤 开始上传错误日志到服务器...')
     console.log(`📍 服务器: ${user}@${host}:${port}`)
@@ -17,7 +17,8 @@ async function uploadToServer(localPath) {
     console.log(`📂 本地路径: ${localPath}`)
 
     const remoteDir = `${user}@${host}:${remotePath}`
-    const sshCommand = `scp -P ${port} -r ${localPath} ${remoteDir}/`
+    const identityOption = identityFile ? `-i ${identityFile} ` : ''
+    const sshCommand = `scp ${identityOption}-P ${port} -r ${localPath} ${remoteDir}/`
 
     console.log(`🔧 执行命令: ${sshCommand}\n`)
 
