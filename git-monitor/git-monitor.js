@@ -80,11 +80,18 @@ async function checkForUpdates(repoPath, branch) {
 
     if (localCommit !== remoteCommit) {
       const commitCount = await execCommand(`git rev-list --count ${branch}..origin/${branch}`, repoPath)
-      return {
-        hasUpdate: true,
-        localCommit: localCommit.substring(0, 7),
-        remoteCommit: remoteCommit.substring(0, 7),
-        commitCount: parseInt(commitCount)
+      const count = parseInt(commitCount)
+
+      if (count > 0) {
+        return {
+          hasUpdate: true,
+          localCommit: localCommit.substring(0, 7),
+          remoteCommit: remoteCommit.substring(0, 7),
+          commitCount: count
+        }
+      } else {
+        log(`[本地领先远程，无需拉取]`)
+        return { hasUpdate: false }
       }
     }
 
@@ -97,7 +104,7 @@ async function checkForUpdates(repoPath, branch) {
 
 async function pullChanges(repoPath, branch) {
   try {
-    const result = await execCommand(`git pull origin ${branch}`, repoPath)
+    const result = await execCommand(`git pull --rebase origin ${branch}`, repoPath)
     return { success: true, output: result }
   } catch (error) {
     return {

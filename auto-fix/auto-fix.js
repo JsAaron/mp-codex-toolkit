@@ -101,9 +101,9 @@ async function saveError(type, message, extraData = {}, pageLogPath = null) {
   }
 
   try {
-    const dateStr = getDateString()
     const timeStr = getTimeString()
-    const errorDir = path.join(__dirname, config.errorLogs.dir, dateStr, timeStr)
+    const dirName = `${timeStr}_${type}`
+    const errorDir = path.join(__dirname, config.errorLogs.dir, 'page-error', dirName)
 
     // 关键修复：确保目录同步创建完成（使用 await 等待 ensureDir 执行完毕）
     await fs.ensureDir(errorDir)
@@ -140,7 +140,7 @@ async function saveError(type, message, extraData = {}, pageLogPath = null) {
         2
       )
     )
-    console.log(`✅ 已保存到: ${config.errorLogs.dir}/${dateStr}/${timeStr}/\n`)
+    console.log(`✅ 已保存到: ${config.errorLogs.dir}/page-error/${dirName}/\n`)
 
     if (config.server.uploadOnError) {
       const errorLogsDir = path.join(__dirname, config.errorLogs.dir)
@@ -169,9 +169,8 @@ async function savePageLogs(reason = 'page-change') {
       console.warn(`⚠️ 获取当前页面路径失败，使用缓存路径: ${currentPath}`)
     }
 
-    const dateStr = getDateString()
     const timeStr = getTimeString()
-    const logDir = path.join(__dirname, config.errorLogs.dir, dateStr, 'page-logs')
+    const logDir = path.join(__dirname, config.errorLogs.dir, 'page-logs')
     await fs.ensureDir(logDir)
 
     // 根据触发原因生成文件名和前缀
@@ -211,10 +210,10 @@ async function savePageLogs(reason = 'page-change') {
     await fs.writeFile(logFilePath, logContent, 'utf-8')
     const logCountInfo =
       currentPageLogs.length > 0 ? `${currentPageLogs.length}条` : '空（可能监听器绑定晚于页面初始化）'
-    console.log(`📝 已保存页面日志: ${config.errorLogs.dir}/${dateStr}/page-logs/${logFileName} (${logCountInfo})\n`)
+    console.log(`📝 已保存页面日志: ${config.errorLogs.dir}/page-logs/${logFileName} (${logCountInfo})\n`)
 
     // 返回相对路径，供错误日志引用
-    return `${config.errorLogs.dir}/${dateStr}/page-logs/${logFileName}`
+    return `${config.errorLogs.dir}/page-logs/${logFileName}`
   } catch (e) {
     console.error(`❌ 保存页面日志失败: ${e.message}`)
     return null
