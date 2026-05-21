@@ -257,115 +257,6 @@ debug/mp-monitor/page-logs/
 5. **错误捕获** → 记录错误信息、截图、堆栈
 6. **日志上传** → 自动上传到远程服务器（可选）
 
-## 常见问题
-
-### 1. 微信开发者工具连接失败
-
-确保：
-- 开发者工具已打开
-- 已开启"服务端口"（设置 → 安全 → 服务端口）
-- 端口号配置正确（默认 10984）
-
-### 2. Git 拉取失败
-
-检查：
-- 仓库路径是否正确
-- 是否有本地未提交的修改
-- 网络连接是否正常
-- SSH 密钥是否配置正确
-
-### 3. 日志上传失败
-
-确认：
-- SSH 密钥路径正确
-- 远程服务器可访问
-- 远程路径有写入权限
-
-#### 常见上传错误及解决方案
-
-**错误 1：Permission denied (publickey)**
-
-```bash
-# 原因：SSH 密钥权限不正确或密钥未添加到服务器
-# 解决方案：
-chmod 600 /Users/chenwen/.ssh/chenwen_key
-ssh-add /Users/chenwen/.ssh/chenwen_key
-
-# 测试连接
-ssh -i /Users/chenwen/.ssh/chenwen_key chenwen@43.106.0.58
-```
-
-**错误 2：No such file or directory**
-
-```bash
-# 原因：远程路径不存在
-# 解决方案：在服务器上创建目录
-ssh chenwen@43.106.0.58 "mkdir -p /home/chenwen/repository/gaofenwx/debug"
-```
-
-**错误 3：rsync: command not found**
-
-```bash
-# 原因：服务器未安装 rsync
-# 解决方案：在服务器上安装
-# Ubuntu/Debian:
-sudo apt-get install rsync
-
-# CentOS/RHEL:
-sudo yum install rsync
-```
-
-**错误 4：Connection timeout**
-
-```bash
-# 原因：网络问题或防火墙阻止
-# 解决方案：
-# 1. 检查网络连接
-ping 43.106.0.58
-
-# 2. 检查 SSH 端口是否开放
-telnet 43.106.0.58 22
-
-# 3. 检查防火墙规则（服务器端）
-sudo ufw status
-sudo ufw allow 22/tcp
-```
-
-**错误 5：Host key verification failed**
-
-```bash
-# 原因：服务器密钥未添加到 known_hosts
-# 解决方案：
-ssh-keyscan -H 43.106.0.58 >> ~/.ssh/known_hosts
-```
-
-#### 手动测试上传
-
-```bash
-# 测试 rsync 上传
-rsync -avz -e "ssh -i /Users/chenwen/.ssh/chenwen_key" \
-  /path/to/local/debug/ \
-  chenwen@43.106.0.58:/home/chenwen/repository/gaofenwx/debug/
-
-# 查看上传日志
-tail -f debug/git-monitor.log | grep upload
-```
-
-#### 调试模式
-
-在 `mp-monitor/upload-to-server.js` 中启用详细日志：
-
-```javascript
-// 查看完整的 rsync 命令和输出
-console.log('执行命令:', rsyncCommand)
-console.log('stdout:', stdout)
-console.log('stderr:', stderr)
-```
-
-### 4. 错误未被捕获
-
-检查 `config.js` 中的 `errorCapture` 配置，确保对应的错误类型已启用。
-
 ## 高级配置
 
 ### 禁用特定错误类型
@@ -407,23 +298,6 @@ debugUpload: {
 - `fs-extra` - 文件系统增强
 - `axios` - HTTP 客户端（可选）
 - `tail` - 日志监听（可选）
-
-## 许可证
-
-MIT
-
-## 贡献
-
-欢迎提交 Issue 和 Pull Request。
-
-## 更新日志
-
-### v1.0.0 (2026-05-21)
-- 初始版本发布
-- Git 监控功能
-- 小程序错误监控
-- 日志管理和上传
-- 自动部署功能
 
 ---
 
@@ -766,3 +640,132 @@ ssh -i /Users/chenwen/.ssh/chenwen_key chenwen@43.106.0.58
 # 检查远程路径
 ssh chenwen@43.106.0.58 "ls -la /home/chenwen/repository/gaofenwx/debug"
 ```
+
+
+## 常见问题
+
+### 1. 微信开发者工具连接失败
+
+确保：
+- 开发者工具已打开
+- 已开启"服务端口"（设置 → 安全 → 服务端口）
+- 端口号配置正确（默认 10984）
+
+### 2. Git 拉取失败
+
+检查：
+- 仓库路径是否正确
+- 是否有本地未提交的修改
+- 网络连接是否正常
+- SSH 密钥是否配置正确
+
+### 3. 日志上传失败
+
+确认：
+- SSH 密钥路径正确
+- 远程服务器可访问
+- 远程路径有写入权限
+
+#### 常见上传错误及解决方案
+
+**错误 1：Permission denied (publickey)**
+
+```bash
+# 原因：SSH 密钥权限不正确或密钥未添加到服务器
+# 解决方案：
+chmod 600 /Users/chenwen/.ssh/chenwen_key
+ssh-add /Users/chenwen/.ssh/chenwen_key
+
+# 测试连接
+ssh -i /Users/chenwen/.ssh/chenwen_key chenwen@43.106.0.58
+```
+
+**错误 2：No such file or directory**
+
+```bash
+# 原因：远程路径不存在
+# 解决方案：在服务器上创建目录
+ssh chenwen@43.106.0.58 "mkdir -p /home/chenwen/repository/gaofenwx/debug"
+```
+
+**错误 3：rsync: command not found**
+
+```bash
+# 原因：服务器未安装 rsync
+# 解决方案：在服务器上安装
+# Ubuntu/Debian:
+sudo apt-get install rsync
+
+# CentOS/RHEL:
+sudo yum install rsync
+```
+
+**错误 4：Connection timeout**
+
+```bash
+# 原因：网络问题或防火墙阻止
+# 解决方案：
+# 1. 检查网络连接
+ping 43.106.0.58
+
+# 2. 检查 SSH 端口是否开放
+telnet 43.106.0.58 22
+
+# 3. 检查防火墙规则（服务器端）
+sudo ufw status
+sudo ufw allow 22/tcp
+```
+
+**错误 5：Host key verification failed**
+
+```bash
+# 原因：服务器密钥未添加到 known_hosts
+# 解决方案：
+ssh-keyscan -H 43.106.0.58 >> ~/.ssh/known_hosts
+```
+
+#### 手动测试上传
+
+```bash
+# 测试 rsync 上传
+rsync -avz -e "ssh -i /Users/chenwen/.ssh/chenwen_key" \
+  /path/to/local/debug/ \
+  chenwen@43.106.0.58:/home/chenwen/repository/gaofenwx/debug/
+
+# 查看上传日志
+tail -f debug/git-monitor.log | grep upload
+```
+
+#### 调试模式
+
+在 `mp-monitor/upload-to-server.js` 中启用详细日志：
+
+```javascript
+// 查看完整的 rsync 命令和输出
+console.log('执行命令:', rsyncCommand)
+console.log('stdout:', stdout)
+console.log('stderr:', stderr)
+```
+
+### 4. 错误未被捕获
+
+检查 `config.js` 中的 `errorCapture` 配置，确保对应的错误类型已启用。
+
+---
+
+## 许可证
+
+MIT
+
+## 贡献
+
+欢迎提交 Issue 和 Pull Request。
+
+## 更新日志
+
+### v1.0.0 (2026-05-21)
+- 初始版本发布
+- Git 监控功能
+- 小程序错误监控
+- 日志管理和上传
+- 自动部署功能
