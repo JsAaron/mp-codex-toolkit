@@ -274,6 +274,87 @@ debug/mp-monitor/page-logs/
 - 远程服务器可访问
 - 远程路径有写入权限
 
+#### 常见上传错误及解决方案
+
+**错误 1：Permission denied (publickey)**
+
+```bash
+# 原因：SSH 密钥权限不正确或密钥未添加到服务器
+# 解决方案：
+chmod 600 /Users/chenwen/.ssh/chenwen_key
+ssh-add /Users/chenwen/.ssh/chenwen_key
+
+# 测试连接
+ssh -i /Users/chenwen/.ssh/chenwen_key chenwen@43.106.0.58
+```
+
+**错误 2：No such file or directory**
+
+```bash
+# 原因：远程路径不存在
+# 解决方案：在服务器上创建目录
+ssh chenwen@43.106.0.58 "mkdir -p /home/chenwen/repository/gaofenwx/debug"
+```
+
+**错误 3：rsync: command not found**
+
+```bash
+# 原因：服务器未安装 rsync
+# 解决方案：在服务器上安装
+# Ubuntu/Debian:
+sudo apt-get install rsync
+
+# CentOS/RHEL:
+sudo yum install rsync
+```
+
+**错误 4：Connection timeout**
+
+```bash
+# 原因：网络问题或防火墙阻止
+# 解决方案：
+# 1. 检查网络连接
+ping 43.106.0.58
+
+# 2. 检查 SSH 端口是否开放
+telnet 43.106.0.58 22
+
+# 3. 检查防火墙规则（服务器端）
+sudo ufw status
+sudo ufw allow 22/tcp
+```
+
+**错误 5：Host key verification failed**
+
+```bash
+# 原因：服务器密钥未添加到 known_hosts
+# 解决方案：
+ssh-keyscan -H 43.106.0.58 >> ~/.ssh/known_hosts
+```
+
+#### 手动测试上传
+
+```bash
+# 测试 rsync 上传
+rsync -avz -e "ssh -i /Users/chenwen/.ssh/chenwen_key" \
+  /path/to/local/debug/ \
+  chenwen@43.106.0.58:/home/chenwen/repository/gaofenwx/debug/
+
+# 查看上传日志
+tail -f debug/git-monitor.log | grep upload
+```
+
+#### 调试模式
+
+在 `mp-monitor/upload-to-server.js` 中启用详细日志：
+
+```javascript
+// 查看完整的 rsync 命令和输出
+console.log('执行命令:', rsyncCommand)
+console.log('stdout:', stdout)
+console.log('stderr:', stderr)
+```
+
 ### 4. 错误未被捕获
 
 检查 `config.js` 中的 `errorCapture` 配置，确保对应的错误类型已启用。
