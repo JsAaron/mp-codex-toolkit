@@ -424,3 +424,345 @@ MIT
 - 小程序错误监控
 - 日志管理和上传
 - 自动部署功能
+
+---
+
+## 配置参数详解
+
+本章节详细说明 `config.js` 中所有配置项的含义、类型和使用方法。
+
+### 1. gitMonitor - Git 监控配置
+
+用于监控 Git 仓库的远程更新，自动拉取代码并触发后续操作。
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `interval` | Number | `10000` | 检测间隔时间（毫秒），建议不低于 5000ms |
+| `repositories` | Array | `[]` | 监控的仓库列表，支持多仓库 |
+| `repositories[].name` | String | - | 仓库名称，用于日志标识，建议使用项目名 |
+| `repositories[].path` | String | - | 仓库本地路径（绝对路径），必须是有效的 Git 仓库 |
+| `repositories[].branch` | String | - | 监控的分支名称，如 `main`、`chenwen-codex` |
+| `repositories[].enabled` | Boolean | `true` | 是否启用该仓库的监控，`false` 则跳过 |
+| `logFile` | String | - | Git 监控日志文件路径，建议使用绝对路径 |
+| `retryTimes` | Number | `3` | 拉取失败时的重试次数，0 表示不重试 |
+| `retryDelay` | Number | `5000` | 重试间隔时间（毫秒） |
+
+**示例：**
+
+```javascript
+gitMonitor: {
+  interval: 10000,
+  repositories: [
+    {
+      name: 'gaofenwx',
+      path: '/Users/chenwen/work/项目/gaofenwx',
+      branch: 'chenwen-codex',
+      enabled: true
+    },
+    {
+      name: 'admin-panel',
+      path: '/Users/chenwen/work/项目/admin',
+      branch: 'main',
+      enabled: false  // 暂时禁用
+    }
+  ],
+  logFile: path.join(__dirname, 'debug/git-monitor.log'),
+  retryTimes: 3,
+  retryDelay: 5000
+}
+```
+
+### 2. mpMonitor - 小程序监控配置
+
+用于监控微信小程序运行时错误，自动捕获并记录错误信息。
+
+#### 2.1 顶层配置
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `enabled` | Boolean | `true` | 是否启用小程序监控功能 |
+| `runOnPullSuccess` | Boolean | `true` | Git 拉取成功后是否自动启动小程序监控 |
+| `scriptPath` | String | - | 监控脚本路径，通常无需修改 |
+
+#### 2.2 startup - 启动配置
+
+用于连接微信开发者工具并启动自动化测试。
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `path` | String | - | 小程序项目路径（绝对路径） |
+| `cliPath` | String | - | 微信开发者工具 CLI 路径 |
+| `port` | Number | `10984` | 自动化测试端口号，需与开发者工具设置一致 |
+| `connection.timeout` | Number | `10000` | 连接超时时间（毫秒） |
+| `connection.maxRetries` | Number | `3` | 连接失败最大重试次数 |
+| `connection.retryDelay` | Number | `3000` | 连接重试间隔时间（毫秒） |
+
+**微信开发者工具 CLI 路径：**
+- macOS: `/Applications/wechatwebdevtools.app/Contents/MacOS/cli`
+- Windows: `C:\Program Files (x86)\Tencent\微信web开发者工具\cli.bat`
+
+#### 2.3 automation.pageWatch - 页面监听配置
+
+用于监控页面变化和自动刷新。
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `interval` | Number | `500` | 页面变化检测间隔（毫秒），建议 300-1000ms |
+| `autoRefresh` | Boolean | `true` | 是否在页面变化时自动刷新 |
+| `refreshDelay` | Number | `3000` | 刷新延迟时间（毫秒），给页面加载留出时间 |
+
+#### 2.4 automation.logs - 日志配置
+
+控制日志文件的生成和管理。
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `clearOnStart` | Boolean | `true` | 启动时是否清空旧日志文件 |
+| `dir` | String | `'../debug/mp-monitor'` | 日志输出目录（相对于 mp-monitor 目录） |
+| `generatePageLogs` | Boolean | `true` | 是否生成页面日志文件 |
+
+**generatePageLogs 说明：**
+- `true`: 生成完整的页面日志（进入、离开、错误时）
+- `false`: 只生成错误日志，不记录页面日志
+
+#### 2.5 automation.errorCapture - 错误捕获配置
+
+控制捕获哪些类型的错误。
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `console.error` | Boolean | `true` | 是否捕获 `console.error` |
+| `console.warn` | Boolean | `false` | 是否捕获 `console.warn` |
+| `scripterror` | Boolean | `true` | 是否捕获脚本错误（JS 运行时错误） |
+| `pageerror` | Boolean | `true` | 是否捕获页面错误（页面加载、渲染错误） |
+| `exception` | Boolean | `true` | 是否捕获异常事件（未捕获的 Promise rejection 等） |
+| `systemError` | Boolean | `true` | 是否捕获系统错误（小程序框架层错误） |
+
+**错误类型说明：**
+
+| 错误类型 | 触发场景 | 示例 |
+|---------|---------|------|
+| `console.error` | 代码中主动调用 `console.error()` | `console.error('数据加载失败')` |
+| `console.warn` | 代码中主动调用 `console.warn()` | `console.warn('即将废弃的 API')` |
+| `scripterror` | JavaScript 运行时错误 | `undefined.foo()` |
+| `pageerror` | 页面渲染错误 | WXML 模板错误、组件错误 |
+| `exception` | 未捕获的异常 | `Promise.reject()` 未处理 |
+| `systemError` | 小程序框架错误 | 路由错误、API 调用错误 |
+
+**示例配置：**
+
+```javascript
+// 只捕获严重错误，忽略警告
+errorCapture: {
+  console: {
+    error: true,
+    warn: false
+  },
+  scripterror: true,
+  pageerror: true,
+  exception: true,
+  systemError: true
+}
+
+// 捕获所有类型的错误和警告
+errorCapture: {
+  console: {
+    error: true,
+    warn: true
+  },
+  scripterror: true,
+  pageerror: true,
+  exception: true,
+  systemError: true
+}
+```
+
+### 3. debugUpload - Debug 上传配置
+
+用于将错误日志自动上传到远程服务器，便于远程调试和分析。
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `enabled` | Boolean | `true` | 是否启用自动上传功能 |
+| `host` | String | - | 远程服务器 IP 地址或域名 |
+| `port` | Number | `22` | SSH 端口号 |
+| `user` | String | - | SSH 登录用户名 |
+| `remotePath` | String | - | 远程服务器上的目标路径（绝对路径） |
+| `identityFile` | String | - | SSH 私钥文件路径（用于免密登录） |
+
+**使用前提：**
+1. 远程服务器已安装 `rsync`
+2. 本地已配置 SSH 密钥认证
+3. 远程路径有写入权限
+
+**SSH 密钥配置：**
+
+```bash
+# 1. 生成 SSH 密钥（如果没有）
+ssh-keygen -t rsa -b 4096 -f ~/.ssh/chenwen_key
+
+# 2. 将公钥复制到服务器
+ssh-copy-id -i ~/.ssh/chenwen_key.pub chenwen@43.106.0.58
+
+# 3. 设置密钥权限
+chmod 600 ~/.ssh/chenwen_key
+
+# 4. 测试连接
+ssh -i ~/.ssh/chenwen_key chenwen@43.106.0.58
+```
+
+**示例配置：**
+
+```javascript
+// 启用上传
+debugUpload: {
+  enabled: true,
+  host: '43.106.0.58',
+  port: 22,
+  user: 'chenwen',
+  remotePath: '/home/chenwen/repository/gaofenwx/debug',
+  identityFile: '/Users/chenwen/.ssh/chenwen_key'
+}
+
+// 禁用上传（本地调试）
+debugUpload: {
+  enabled: false
+}
+```
+
+### 4. mpDeploy - 小程序部署配置
+
+用于一键打包和发布小程序到微信平台。
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `projectPath` | String | - | 小程序项目路径（绝对路径） |
+| `cliPath` | String | - | 微信开发者工具 CLI 路径 |
+| `version` | String | `'1.0.0'` | 发布版本号（遵循语义化版本规范） |
+| `desc` | String | - | 版本描述信息，会显示在微信后台 |
+
+**版本号规范：**
+
+遵循语义化版本（Semantic Versioning）：`主版本号.次版本号.修订号`
+
+- **主版本号**：不兼容的 API 修改
+- **次版本号**：向下兼容的功能性新增
+- **修订号**：向下兼容的问题修正
+
+**示例：**
+- `1.0.0` - 初始版本
+- `1.1.0` - 新增功能
+- `1.1.1` - Bug 修复
+- `2.0.0` - 重大更新
+
+**示例配置：**
+
+```javascript
+mpDeploy: {
+  projectPath: '/Users/chenwen/work/项目/gaofenwx',
+  cliPath: '/Applications/wechatwebdevtools.app/Contents/MacOS/cli',
+  version: '1.2.3',
+  desc: '修复首页加载问题，优化性能'
+}
+```
+
+---
+
+## 配置最佳实践
+
+### 1. 开发环境配置
+
+```javascript
+module.exports = {
+  gitMonitor: {
+    interval: 10000,  // 开发时可以设置短一些
+    // ...
+  },
+  mpMonitor: {
+    enabled: true,
+    automation: {
+      logs: {
+        clearOnStart: true,  // 每次启动清空日志
+        generatePageLogs: true  // 开发时建议开启
+      },
+      errorCapture: {
+        console: {
+          error: true,
+          warn: true  // 开发时建议捕获警告
+        },
+        // 全部开启
+      }
+    }
+  },
+  debugUpload: {
+    enabled: false  // 开发时可以关闭上传
+  }
+}
+```
+
+### 2. 生产环境配置
+
+```javascript
+module.exports = {
+  gitMonitor: {
+    interval: 30000,  // 生产环境可以设置长一些
+    // ...
+  },
+  mpMonitor: {
+    enabled: true,
+    automation: {
+      logs: {
+        clearOnStart: false,  // 保留历史日志
+        generatePageLogs: false  // 只记录错误
+      },
+      errorCapture: {
+        console: {
+          error: true,
+          warn: false  // 生产环境忽略警告
+        },
+        // 只捕获严重错误
+      }
+    }
+  },
+  debugUpload: {
+    enabled: true  // 生产环境开启上传
+  }
+}
+```
+
+### 3. 多环境配置
+
+可以创建多个配置文件：
+
+```bash
+config.dev.js      # 开发环境
+config.prod.js     # 生产环境
+config.test.js     # 测试环境
+```
+
+然后通过环境变量切换：
+
+```javascript
+const env = process.env.NODE_ENV || 'dev'
+module.exports = require(`./config.${env}.js`)
+```
+
+---
+
+## 配置验证
+
+启动前建议验证配置是否正确：
+
+```bash
+# 检查 Git 仓库路径
+ls -la /path/to/your/project/.git
+
+# 检查微信开发者工具 CLI
+/Applications/wechatwebdevtools.app/Contents/MacOS/cli --version
+
+# 检查 SSH 连接
+ssh -i /Users/chenwen/.ssh/chenwen_key chenwen@43.106.0.58
+
+# 检查远程路径
+ssh chenwen@43.106.0.58 "ls -la /home/chenwen/repository/gaofenwx/debug"
+```
