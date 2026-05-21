@@ -64,7 +64,7 @@ module.exports = {
 
   // debug上传服务器配置
   debugUpload: {
-    enabled: false,
+    enabled: true,
     host: '43.106.0.58',
     port: 22,
     user: 'chenwen',
