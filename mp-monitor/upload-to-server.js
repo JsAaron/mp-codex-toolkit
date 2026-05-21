@@ -1,7 +1,8 @@
 const { exec } = require('child_process')
 const path = require('path')
 const fs = require('fs-extra')
-const config = require('./config')
+const sharedConfig = require('../config')
+const debugConfig = sharedConfig.debugUpload
 
 // 生成上传唯一标识
 function generateUploadId() {
@@ -12,7 +13,7 @@ function generateUploadId() {
 }
 
 async function cleanRemoteDir() {
-  const { host, port, user, remotePath, identityFile } = config.server
+  const { host, port, user, remotePath, identityFile } = debugConfig
 
   return new Promise((resolve, reject) => {
     const identityOption = identityFile ? `-i ${identityFile} ` : ''
@@ -38,13 +39,13 @@ async function cleanRemoteDir() {
 }
 
 async function uploadToServer(localPath) {
-  if (!config.server.enabled) {
+  if (!debugConfig.enabled) {
     console.log('⚠️  服务器上传功能未启用')
     return { success: false, message: '服务器上传功能未启用' }
   }
 
   return new Promise((resolve, reject) => {
-    const { host, port, user, remotePath, identityFile } = config.server
+    const { host, port, user, remotePath, identityFile } = debugConfig
 
     console.log('📤 开始上传错误日志到服务器...')
     console.log(`📍 服务器: ${user}@${host}:${port}`)
@@ -91,7 +92,7 @@ async function updateUploadStatus(localPath, uploadId, status) {
 }
 
 async function uploadErrorLogs(errorLogsDir) {
-  if (!config.server.enabled) {
+  if (!debugConfig.enabled) {
     return { success: false, message: '服务器上传功能未启用' }
   }
 
@@ -123,7 +124,7 @@ async function uploadErrorLogs(errorLogsDir) {
     await updateUploadStatus(errorLogsDir, uploadId, 'completed')
 
     // 5. 单独上传更新后的状态文件到服务器
-    const { host, port, user, remotePath, identityFile } = config.server
+    const { host, port, user, remotePath, identityFile } = debugConfig
     const identityOption = identityFile ? `-i ${identityFile} ` : ''
     const statusFile = path.join(errorLogsDir, 'upload-status.json')
     const sshCommand = `scp ${identityOption}-P ${port} ${statusFile} ${user}@${host}:${remotePath}/`

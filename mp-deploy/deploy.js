@@ -2,45 +2,12 @@ const { spawn } = require('child_process')
 const fs = require('fs-extra')
 const path = require('path')
 
-// 配置文件路径
-const CONFIG_FILE = path.join(__dirname, 'deploy-config.json')
-
-// 默认配置
-const DEFAULT_CONFIG = {
-  projectPath: '/Users/chenwen/work/长沙新学堂项目/项目-高分派/微信/gaofenwx',
-  cliPath: '/Applications/wechatwebdevtools.app/Contents/MacOS/cli',
-  version: '1.0.0',
-  desc: '自动构建版本'
-}
-
-// 读取配置
-function loadConfig() {
-  try {
-    if (fs.existsSync(CONFIG_FILE)) {
-      const config = fs.readJsonSync(CONFIG_FILE)
-      return { ...DEFAULT_CONFIG, ...config }
-    }
-  } catch (e) {
-    console.warn('⚠️  读取配置文件失败，使用默认配置')
-  }
-  return DEFAULT_CONFIG
-}
-
-// 保存配置
-function saveConfig(config) {
-  try {
-    fs.writeJsonSync(CONFIG_FILE, config, { spaces: 2 })
-    console.log('✅ 配置已保存\n')
-  } catch (e) {
-    console.error('❌ 保存配置失败:', e.message)
-  }
-}
+const sharedConfig = require('../config')
+const config = sharedConfig.mpDeploy
 
 // 执行 CLI 命令
 function execCli(args) {
   return new Promise((resolve, reject) => {
-    const config = loadConfig()
-
     console.log(`🚀 执行命令: ${config.cliPath} ${args.join(' ')}\n`)
 
     const process = spawn(config.cliPath, args)
@@ -78,8 +45,6 @@ function execCli(args) {
 async function build() {
   console.log('📦 开始编译小程序...\n')
 
-  const config = loadConfig()
-
   try {
     await execCli(['build-npm', '--project', config.projectPath])
 
@@ -95,7 +60,6 @@ async function build() {
 async function upload(version, desc) {
   console.log('📤 开始上传小程序...\n')
 
-  const config = loadConfig()
   const uploadVersion = version || config.version
   const uploadDesc = desc || config.desc
 
@@ -105,12 +69,7 @@ async function upload(version, desc) {
     console.log('\n✅ 上传完成\n')
     console.log(`📋 版本号: ${uploadVersion}`)
     console.log(`📝 描述: ${uploadDesc}\n`)
-
-    // 更新配置中的版本号（自动递增）
-    const versionParts = uploadVersion.split('.')
-    versionParts[2] = String(parseInt(versionParts[2]) + 1)
-    config.version = versionParts.join('.')
-    saveConfig(config)
+    console.log('💡 提示: 如需更新版本号，请修改 config.js 中的 deploy.version\n')
 
     return true
   } catch (e) {
@@ -122,8 +81,6 @@ async function upload(version, desc) {
 // 3. 预览小程序
 async function preview(qrFormat = 'terminal', qrOutput) {
   console.log('👀 生成预览二维码...\n')
-
-  const config = loadConfig()
 
   // 如果没有指定输出路径，默认保存到当前目录
   const defaultQrPath = path.join(__dirname, `preview-qr-${Date.now()}.png`)
@@ -153,7 +110,6 @@ async function preview(qrFormat = 'terminal', qrOutput) {
 async function previewBoth() {
   console.log('👀 生成预览二维码（终端+图片）...\n')
 
-  const config = loadConfig()
   const qrPath = path.join(__dirname, `preview-qr-${Date.now()}.png`)
 
   try {
@@ -176,8 +132,6 @@ async function previewBoth() {
 // 4. 自动登录
 async function login() {
   console.log('🔐 开始登录...\n')
-
-  const config = loadConfig()
 
   try {
     await execCli(['login', '--login-qr-output', path.join(__dirname, 'login-qr.png')])
@@ -218,25 +172,12 @@ async function deploy(version, desc) {
 
 // 6. 显示配置
 function showConfig() {
-  const config = loadConfig()
   console.log('📋 当前配置:\n')
   console.log(`项目路径: ${config.projectPath}`)
   console.log(`CLI 路径: ${config.cliPath}`)
   console.log(`当前版本: ${config.version}`)
   console.log(`默认描述: ${config.desc}\n`)
-}
-
-// 7. 更新配置
-function updateConfig(key, value) {
-  const config = loadConfig()
-
-  if (key === 'version' || key === 'desc' || key === 'projectPath' || key === 'cliPath') {
-    config[key] = value
-    saveConfig(config)
-    console.log(`✅ 已更新 ${key} = ${value}\n`)
-  } else {
-    console.error(`❌ 不支持的配置项: ${key}\n`)
-  }
+  console.log('💡 提示: 如需修改配置，请编辑 config.js 文件\n')
 }
 
 // 命令行参数解析
@@ -259,7 +200,6 @@ async function main() {
   deploy [version] [desc]   完整部署（编译+上传）
   login                     登录微信开发者工具
   config                    显示当前配置
-  config:set <key> <value>  更新配置
 
 示例:
   node deploy.js build
@@ -268,7 +208,6 @@ async function main() {
   node deploy.js preview image ./qr.png
   node deploy.js preview:both
   node deploy.js deploy 1.0.2 "新增功能"
-  node deploy.js config:set version 1.0.0
 `)
     return
   }
@@ -303,14 +242,6 @@ async function main() {
         showConfig()
         break
 
-      case 'config:set':
-        if (args[1] && args[2]) {
-          updateConfig(args[1], args[2])
-        } else {
-          console.error('❌ 用法: node deploy.js config:set <key> <value>\n')
-        }
-        break
-
       default:
         console.error(`❌ 未知命令: ${command}\n`)
         console.log('运行 "node deploy.js" 查看帮助\n')
@@ -333,6 +264,5 @@ module.exports = {
   previewBoth,
   deploy,
   login,
-  showConfig,
-  updateConfig
+  showConfig
 }

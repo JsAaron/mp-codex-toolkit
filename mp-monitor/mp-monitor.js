@@ -1,10 +1,13 @@
 const { spawn } = require('child_process')
 const automator = require('miniprogram-automator')
-const config = require('./config')
+const sharedConfig = require('../config')
 const fs = require('fs-extra')
 const path = require('path')
 const net = require('net')
 const { uploadErrorLogs } = require('./upload-to-server')
+
+const mpConfig = sharedConfig.mpMonitor
+const debugConfig = sharedConfig.debugUpload
 
 // 检测端口是否可用
 function checkPortIsUsed(port) {
@@ -103,7 +106,7 @@ async function saveError(type, message, extraData = {}, pageLogPath = null) {
   try {
     const timeStr = getTimeString()
     const dirName = `${timeStr}_${type}`
-    const errorDir = path.join(__dirname, config.errorLogs.dir, 'page-error', dirName)
+    const errorDir = path.join(__dirname, mpConfig.automation.logs.dir, 'page-error', dirName)
 
     // 关键修复：确保目录同步创建完成（使用 await 等待 ensureDir 执行完毕）
     await fs.ensureDir(errorDir)
@@ -140,10 +143,10 @@ async function saveError(type, message, extraData = {}, pageLogPath = null) {
         2
       )
     )
-    console.log(`✅ 已保存到: ${config.errorLogs.dir}/page-error/${dirName}/\n`)
+    console.log(`✅ 已保存到: ${mpConfig.automation.logs.dir}/page-error/${dirName}/\n`)
 
-    if (config.server.uploadOnError) {
-      const errorLogsDir = path.join(__dirname, config.errorLogs.dir)
+    if (debugConfig.enabled) {
+      const errorLogsDir = path.join(__dirname, mpConfig.automation.logs.dir)
       await uploadErrorLogs(errorLogsDir)
     }
   } catch (e) {
@@ -156,6 +159,11 @@ async function saveError(type, message, extraData = {}, pageLogPath = null) {
 
 // 保存当前页面周期的普通日志
 async function savePageLogs(reason = 'page-change') {
+  // 检查是否启用 page-logs 生成
+  if (!mpConfig.automation.logs.generatePageLogs) {
+    return null
+  }
+
   // 错误场景下，即使日志为空也要生成文件
   if (currentPageLogs.length === 0 && reason !== 'error') return null
 
@@ -170,7 +178,7 @@ async function savePageLogs(reason = 'page-change') {
     }
 
     const timeStr = getTimeString()
-    const logDir = path.join(__dirname, config.errorLogs.dir, 'page-logs')
+    const logDir = path.join(__dirname, mpConfig.automation.logs.dir, 'page-logs')
     await fs.ensureDir(logDir)
 
     // 根据触发原因生成文件名和前缀
@@ -210,10 +218,10 @@ async function savePageLogs(reason = 'page-change') {
     await fs.writeFile(logFilePath, logContent, 'utf-8')
     const logCountInfo =
       currentPageLogs.length > 0 ? `${currentPageLogs.length}条` : '空（可能监听器绑定晚于页面初始化）'
-    console.log(`📝 已保存页面日志: ${config.errorLogs.dir}/page-logs/${logFileName} (${logCountInfo})\n`)
+    // console.log(`📝 已保存页面日志: ${mpConfig.automation.logs.dir}/page-logs/${logFileName} (${logCountInfo})\n`)
 
     // 返回相对路径，供错误日志引用
-    return `${config.errorLogs.dir}/page-logs/${logFileName}`
+    return `${mpConfig.automation.logs.dir}/page-logs/${logFileName}`
   } catch (e) {
     console.error(`❌ 保存页面日志失败: ${e.message}`)
     return null
@@ -223,6 +231,9 @@ async function savePageLogs(reason = 'page-change') {
 // 核心：绑定所有事件监听（只在启动时调用一次）
 function bindAllListeners() {
   if (!miniProgram) return
+
+  const errorConfig = mpConfig.automation.errorCapture
+  const enabledListeners = []
 
   // 1. console 监听：捕获所有类型的日志
   console.log('🔧 正在绑定 console 监听器...')
@@ -239,8 +250,8 @@ function bindAllListeners() {
     }
 
     // 打印完整的 msg 对象用于调试
-    console.log(`\n[Console事件] 完整信息:`, JSON.stringify(msg, null, 2))
-    console.log(`✅ [Console捕获] type:${msg.type} | text:${text?.substring(0, 100)}`)
+    // console.log(`\n[Console事件] 完整信息:`, JSON.stringify(msg, null, 2))
+    // console.log(`✅ [Console捕获] type:${msg.type} | text:${text?.substring(0, 100)}`)
 
     // 收集所有类型的日志到当前页面周期（不仅仅是 log/info）
     // 排除 error 和 warn，因为它们会单独保存
@@ -248,87 +259,99 @@ function bindAllListeners() {
       const timestamp = new Date().toISOString()
       const logLine = `[${timestamp}] [${msg.type.toUpperCase()}] ${text}`
       currentPageLogs.push(logLine)
-      console.log(`📝 已收集日志 (当前总数: ${currentPageLogs.length})`)
+      // console.log(`📝 已收集日志 (当前总数: ${currentPageLogs.length})`)
     }
 
-    // 错误和警告仍然单独保存
-    if (msg.type === 'error' || msg.type === 'warn') {
+    // 错误和警告仍然单独保存（根据配置）
+    if (msg.type === 'error' && errorConfig.console.error) {
       const message = text || JSON.stringify(msg)
-      // 错误发生时，先保存当前页面周期的日志
-      let pageLogPath = null
-      if (msg.type === 'error') {
-        // 延迟 100ms，等待其他 console.log 的异步回调执行完成
-        await new Promise(resolve => setTimeout(resolve, 100))
-        pageLogPath = await savePageLogs('error')
-        // 保存后清空日志，开始新的周期
-        currentPageLogs = []
-        currentPageStartTime = Date.now()
-      }
+      // 延迟 100ms，等待其他 console.log 的异步回调执行完成
+      await new Promise(resolve => setTimeout(resolve, 100))
+      const pageLogPath = await savePageLogs('error')
+      // 保存后清空日志，开始新的周期
+      currentPageLogs = []
+      currentPageStartTime = Date.now()
       await saveError(`console.${msg.type}`, message, { args: msg.args, type: msg.type }, pageLogPath)
+    } else if (msg.type === 'warn' && errorConfig.console.warn) {
+      const message = text || JSON.stringify(msg)
+      await saveError(`console.${msg.type}`, message, { args: msg.args, type: msg.type }, null)
     }
   })
+  enabledListeners.push('console')
 
   // 2. 脚本错误
-  miniProgram.on('scripterror', async msg => {
-    // 延迟 100ms，等待其他 console.log 的异步回调执行完成
-    await new Promise(resolve => setTimeout(resolve, 100))
-    // 错误发生时，先保存当前页面周期的日志
-    const pageLogPath = await savePageLogs('error')
-    const message = msg.message || JSON.stringify(msg)
-    await saveError('scripterror', message, msg, pageLogPath)
-    currentPageLogs = []
-    currentPageStartTime = Date.now()
-  })
+  if (errorConfig.scripterror) {
+    miniProgram.on('scripterror', async msg => {
+      // 延迟 100ms，等待其他 console.log 的异步回调执行完成
+      await new Promise(resolve => setTimeout(resolve, 100))
+      // 错误发生时，先保存当前页面周期的日志
+      const pageLogPath = await savePageLogs('error')
+      const message = msg.message || JSON.stringify(msg)
+      await saveError('scripterror', message, msg, pageLogPath)
+      currentPageLogs = []
+      currentPageStartTime = Date.now()
+    })
+    enabledListeners.push('scripterror')
+  }
 
   // 3. 页面错误
-  miniProgram.on('pageerror', async msg => {
-    // 延迟 100ms，等待其他 console.log 的异步回调执行完成
-    await new Promise(resolve => setTimeout(resolve, 100))
-    // 错误发生时，先保存当前页面周期的日志
-    const pageLogPath = await savePageLogs('error')
-    // 保存后清空日志，开始新的周期
-    currentPageLogs = []
-    currentPageStartTime = Date.now()
-    const message = msg.message || JSON.stringify(msg)
-    await saveError('pageerror', message, { detail: msg }, pageLogPath)
-  })
+  if (errorConfig.pageerror) {
+    miniProgram.on('pageerror', async msg => {
+      // 延迟 100ms，等待其他 console.log 的异步回调执行完成
+      await new Promise(resolve => setTimeout(resolve, 100))
+      // 错误发生时，先保存当前页面周期的日志
+      const pageLogPath = await savePageLogs('error')
+      // 保存后清空日志，开始新的周期
+      currentPageLogs = []
+      currentPageStartTime = Date.now()
+      const message = msg.message || JSON.stringify(msg)
+      await saveError('pageerror', message, { detail: msg }, pageLogPath)
+    })
+    enabledListeners.push('pageerror')
+  }
 
   // 4. 异常事件
-  miniProgram.on('exception', async msg => {
-    // 延迟 100ms，等待其他 console.log 的异步回调执行完成
-    await new Promise(resolve => setTimeout(resolve, 100))
-    // 错误发生时，先保存当前页面周期的日志
-    const pageLogPath = await savePageLogs('error')
-    // 保存后清空日志，开始新的周期
-    currentPageLogs = []
-    currentPageStartTime = Date.now()
-    const message = msg.message || msg.error?.message || JSON.stringify(msg)
-    await saveError(
-      'exception',
-      message,
-      {
-        stack: msg.stack,
-        detail: msg
-      },
-      pageLogPath
-    )
-  })
+  if (errorConfig.exception) {
+    miniProgram.on('exception', async msg => {
+      // 延迟 100ms，等待其他 console.log 的异步回调执行完成
+      await new Promise(resolve => setTimeout(resolve, 100))
+      // 错误发生时，先保存当前页面周期的日志
+      const pageLogPath = await savePageLogs('error')
+      // 保存后清空日志，开始新的周期
+      currentPageLogs = []
+      currentPageStartTime = Date.now()
+      const message = msg.message || msg.error?.message || JSON.stringify(msg)
+      await saveError(
+        'exception',
+        message,
+        {
+          stack: msg.stack,
+          detail: msg
+        },
+        pageLogPath
+      )
+    })
+    enabledListeners.push('exception')
+  }
 
   // 5. 系统错误
-  miniProgram.on('error', async msg => {
-    // 延迟 100ms，等待其他 console.log 的异步回调执行完成
-    await new Promise(resolve => setTimeout(resolve, 100))
-    // 错误发生时，先保存当前页面周期的日志
-    const pageLogPath = await savePageLogs('error')
-    // 保存后清空日志，开始新的周期
-    currentPageLogs = []
-    currentPageStartTime = Date.now()
-    const message = msg.message || JSON.stringify(msg)
-    await saveError('system error', message, { detail: msg }, pageLogPath)
-  })
+  if (errorConfig.systemError) {
+    miniProgram.on('error', async msg => {
+      // 延迟 100ms，等待其他 console.log 的异步回调执行完成
+      await new Promise(resolve => setTimeout(resolve, 100))
+      // 错误发生时，先保存当前页面周期的日志
+      const pageLogPath = await savePageLogs('error')
+      // 保存后清空日志，开始新的周期
+      currentPageLogs = []
+      currentPageStartTime = Date.now()
+      const message = msg.message || JSON.stringify(msg)
+      await saveError('system error', message, { detail: msg }, pageLogPath)
+    })
+    enabledListeners.push('error')
+  }
 
-  console.log('✅ 所有事件监听已绑定（持久化模式，不受页面刷新影响）')
-  console.log('📊 监听器列表: console, scripterror, pageerror, exception, error')
+  console.log('✅ 事件监听已绑定（持久化模式，不受页面刷新影响）')
+  console.log(`📊 已启用的监听器: ${enabledListeners.join(', ')}`)
   console.log('⚠️  如果看不到 [Console捕获] 输出，说明小程序的 console 事件没有触发\n')
 }
 
@@ -360,7 +383,7 @@ async function watchPageChange() {
       // 延迟后生成进入页面的日志（等待页面初始化的日志被捕获）
       setTimeout(async () => {
         await savePageLogs('page-enter')
-      }, config.pageWatch.refreshDelay)
+      }, mpConfig.automation.pageWatch.refreshDelay)
     }
   } catch (e) {
     console.warn(`⚠️ 检测页面变化失败: ${e.message}`)
@@ -371,8 +394,8 @@ async function main() {
   console.log('启动微信小程序监听器...\n')
 
   // 清空 debug-logs 目录
-  const errorLogsDir = path.join(__dirname, config.errorLogs.dir)
-  if (config.errorLogs.clearOnStart) {
+  const errorLogsDir = path.join(__dirname, mpConfig.automation.logs.dir)
+  if (mpConfig.automation.logs.clearOnStart) {
     try {
       await fs.remove(errorLogsDir)
       console.log('🗑️  已清空 debug-logs 目录\n')
@@ -381,7 +404,7 @@ async function main() {
     }
   }
 
-  const autoPort = config.autoPort
+  const autoPort = mpConfig.startup.port
 
   // 检测端口
   const isPortUsed = await checkPortIsUsed(autoPort)
@@ -392,7 +415,13 @@ async function main() {
     console.log(`🔄 ${autoPort} 端口未占用，启动开发者工具自动化模式...\n`)
 
     // 只在端口未占用时启动开发者工具
-    cliProcess = spawn(config.cliPath, ['auto', '--project', config.projectPath, '--auto-port', String(autoPort)])
+    cliProcess = spawn(mpConfig.startup.cliPath, [
+      'auto',
+      '--project',
+      mpConfig.startup.path,
+      '--auto-port',
+      String(autoPort)
+    ])
 
     // 监听CLI输出，便于调试
     cliProcess.stdout.on('data', data => {
@@ -405,20 +434,21 @@ async function main() {
 
   // 等待开发者工具准备就绪
   console.log('⏳ 等待开发者工具准备就绪...\n')
-  await new Promise(resolve => setTimeout(resolve, config.connection.retryDelay))
+  await new Promise(resolve => setTimeout(resolve, mpConfig.startup.connection.retryDelay))
 
   console.log('🔗 正在连接到微信开发者工具...\n')
 
-  // 连接重试机制
+  // 连接到开发者工具
   try {
     miniProgram = await automator.connect({
       wsEndpoint: `ws://localhost:${autoPort}`,
-      timeout: config.connection.timeout
+      timeout: mpConfig.startup.connection.timeout
     })
     console.log('✅ 已连接到开发者工具\n')
   } catch (error) {
-    retryCount++
-    console.log(`⚠️ 连接失败 (${retryCount}/${maxRetries}): ${error.message}`)
+    console.error(`❌ 连接失败: ${error.message}`)
+    if (cliProcess) cliProcess.kill()
+    process.exit(1)
   }
 
   try {
@@ -441,13 +471,13 @@ async function main() {
       console.log('✅ 页面已刷新，等待错误捕获...\n')
 
       // 等待页面加载完成
-      await new Promise(resolve => setTimeout(resolve, config.pageWatch.refreshDelay))
+      await new Promise(resolve => setTimeout(resolve, mpConfig.automation.pageWatch.refreshDelay))
     } catch (e) {
       console.warn(`⚠️ 刷新页面失败: ${e.message}`)
     }
 
     // 轮询检测页面变化（热更新）
-    setInterval(watchPageChange, config.pageWatch.interval)
+    setInterval(watchPageChange, mpConfig.automation.pageWatch.interval)
 
     // 监听退出信号
     process.on('SIGINT', async () => {

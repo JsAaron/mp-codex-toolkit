@@ -2,32 +2,11 @@ const { exec, spawn } = require('child_process')
 const fs = require('fs')
 const path = require('path')
 
-const configPath = path.join(__dirname, 'git-monitor-config.json')
-let config = {
-  interval: 10000,
-  repositories: [
-    {
-      name: 'gaofenwx',
-      path: '/Users/chenwen/work/长沙新学堂项目/项目-高分派/微信/gaofenwx',
-      branch: 'chenwen-codex',
-      enabled: true
-    }
-  ],
-  logFile: path.join(__dirname, 'git-monitor.log'),
-  retryTimes: 3,
-  retryDelay: 5000,
-  autoFix: {
-    enabled: true,
-    scriptPath: path.join(__dirname, '../auto-fix/auto-fix.js'),
-    runOnPullSuccess: true
-  }
-}
+const sharedConfig = require('../config')
+const gitConfig = sharedConfig.gitMonitor
+const mpConfig = sharedConfig.mpMonitor
 
-let autoFixProcess = null
-
-if (fs.existsSync(configPath)) {
-  config = { ...config, ...JSON.parse(fs.readFileSync(configPath, 'utf8')) }
-}
+let mpMonitorProcess = null
 
 function log(message, level = 'INFO') {
   const timestamp = new Date().toISOString()
@@ -35,7 +14,7 @@ function log(message, level = 'INFO') {
   console.log(logMessage)
 
   try {
-    fs.appendFileSync(config.logFile, logMessage + '\n')
+    fs.appendFileSync(gitConfig.logFile, logMessage + '\n')
   } catch (error) {
     console.error('写入日志失败:', error.message)
   }
@@ -134,62 +113,62 @@ async function popStash(repoPath) {
   }
 }
 
-function stopAutoFix() {
-  if (autoFixProcess) {
-    log('🛑 停止当前 auto-fix 进程...')
+function stopmpMonitor() {
+  if (mpMonitorProcess) {
+    log('🛑 停止当前 mp-monitor 进程...')
     try {
-      autoFixProcess.kill('SIGINT')
-      autoFixProcess = null
-      log('✅ auto-fix 进程已停止')
+      mpMonitorProcess.kill('SIGINT')
+      mpMonitorProcess = null
+      log('✅ mp-monitor 进程已停止')
       return true
     } catch (error) {
-      log(`停止 auto-fix 失败: ${error.message}`, 'ERROR')
+      log(`停止 mp-monitor 失败: ${error.message}`, 'ERROR')
       return false
     }
   }
   return true
 }
 
-function startAutoFix() {
-  if (!config.autoFix.enabled) {
-    log('auto-fix 功能未启用', 'INFO')
+function startmpMonitor() {
+  if (!mpConfig.enabled) {
+    log('mp-monitor 功能未启用', 'INFO')
     return false
   }
 
-  if (!fs.existsSync(config.autoFix.scriptPath)) {
-    log(`auto-fix 脚本不存在: ${config.autoFix.scriptPath}`, 'ERROR')
+  if (!fs.existsSync(mpConfig.scriptPath)) {
+    log(`mp-monitor 脚本不存在: ${mpConfig.scriptPath}`, 'ERROR')
     return false
   }
 
-  stopAutoFix()
+  stopmpMonitor()
 
-  log('🚀 启动 auto-fix 进程...')
-  log(`📝 脚本路径: ${config.autoFix.scriptPath}`)
+  log('🚀 启动 mp-monitor 进程...')
+  log(`📝 脚本路径: ${mpConfig.scriptPath}`)
 
-  const autoFixDir = path.dirname(config.autoFix.scriptPath)
+  const mpMonitorDir = path.dirname(mpConfig.scriptPath)
 
-  autoFixProcess = spawn('node', [config.autoFix.scriptPath], {
-    cwd: autoFixDir,
+  mpMonitorProcess = spawn('node', [mpConfig.scriptPath], {
+    cwd: mpMonitorDir,
     stdio: 'inherit'
   })
 
-  autoFixProcess.on('exit', (code, signal) => {
+  mpMonitorProcess.on('exit', (code, signal) => {
     if (signal === 'SIGINT') {
-      log('auto-fix 进程被手动停止')
+      log('mp-monitor 进程被手动停止')
     } else if (code !== 0) {
-      log(`auto-fix 进程异常退出，退出码: ${code}`, 'ERROR')
+      log(`mp-monitor 进程异常退出，退出码: ${code}`, 'ERROR')
     } else {
-      log('auto-fix 进程正常退出')
+      log('mp-monitor 进程正常退出')
     }
-    autoFixProcess = null
+    mpMonitorProcess = null
   })
 
-  autoFixProcess.on('error', error => {
-    log(`启动 auto-fix 失败: ${error.message}`, 'ERROR')
-    autoFixProcess = null
+  mpMonitorProcess.on('error', error => {
+    log(`启动 mp-monitor 失败: ${error.message}`, 'ERROR')
+    mpMonitorProcess = null
   })
 
-  log('✅ auto-fix 进程已启动')
+  log('✅ mp-monitor 进程已启动')
   return true
 }
 
@@ -206,9 +185,9 @@ async function processRepository(repo, retryCount = 0) {
 
     const fetchSuccess = await fetchRemote(repoPath, branch)
     if (!fetchSuccess) {
-      if (retryCount < config.retryTimes) {
-        log(`[${name}] 重试 ${retryCount + 1}/${config.retryTimes}...`, 'WARN')
-        await new Promise(resolve => setTimeout(resolve, config.retryDelay))
+      if (retryCount < gitConfig.retryTimes) {
+        log(`[${name}] 重试 ${retryCount + 1}/${gitConfig.retryTimes}...`, 'WARN')
+        await new Promise(resolve => setTimeout(resolve, gitConfig.retryDelay))
         return await processRepository(repo, retryCount + 1)
       }
       log(`[${name}] ❌ fetch 失败，已达最大重试次数`, 'ERROR')
@@ -236,11 +215,10 @@ async function processRepository(repo, retryCount = 0) {
       if (pullResult.output) {
         log(`[${name}] ${pullResult.output}`)
       }
-
-      if (config.autoFix.runOnPullSuccess) {
-        log(`[${name}] 🔄 代码已更新，准备启动 auto-fix...`)
+      if (mpConfig.runOnPullSuccess) {
+        log(`[${name}] 🔄 代码已更新，准备启动 mp-monitor...`)
         await new Promise(resolve => setTimeout(resolve, 2000))
-        startAutoFix()
+        startmpMonitor()
       }
     } else {
       log(`[${name}] ❌ 拉取失败: ${pullResult.error}`, 'ERROR')
@@ -251,14 +229,14 @@ async function processRepository(repo, retryCount = 0) {
 }
 
 async function monitorLoop() {
-  const enabledRepos = config.repositories.filter(r => r.enabled)
+  const enabledRepos = gitConfig.repositories.filter(r => r.enabled)
 
   if (enabledRepos.length === 0) {
     log('没有启用的仓库，退出监控', 'WARN')
     return
   }
 
-  log(`开始监控 ${enabledRepos.length} 个仓库，检测间隔: ${config.interval / 1000} 秒`)
+  log(`开始监控 ${enabledRepos.length} 个仓库，检测间隔: ${gitConfig.interval / 1000} 秒`)
   log(`监控仓库: ${enabledRepos.map(r => `${r.name}(${r.branch})`).join(', ')}`)
 
   while (true) {
@@ -266,19 +244,19 @@ async function monitorLoop() {
       await processRepository(repo)
     }
 
-    await new Promise(resolve => setTimeout(resolve, config.interval))
+    await new Promise(resolve => setTimeout(resolve, gitConfig.interval))
   }
 }
 
 process.on('SIGINT', () => {
   log('收到退出信号，停止监控...')
-  stopAutoFix()
+  stopmpMonitor()
   process.exit(0)
 })
 
 process.on('SIGTERM', () => {
   log('收到终止信号，停止监控...')
-  stopAutoFix()
+  stopmpMonitor()
   process.exit(0)
 })
 
@@ -290,10 +268,10 @@ process.on('uncaughtException', error => {
 log('=========================================')
 log('Git 监控程序启动')
 log('=========================================')
-if (config.autoFix.enabled) {
-  log(`✅ auto-fix 功能已启用 (拉取成功后${config.autoFix.runOnPullSuccess ? '自动' : '不'}启动)`)
+if (mpConfig.enabled) {
+  log(`✅ mp-monitor 功能已启用 (拉取成功后${mpConfig.runOnPullSuccess ? '自动' : '不'}启动)`)
 } else {
-  log('⚠️  auto-fix 功能未启用')
+  log('⚠️  mp-monitor 功能未启用')
 }
 log('=========================================')
 
