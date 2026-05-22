@@ -83,9 +83,112 @@ npm install
 - macOS: `/Applications/wechatwebdevtools.app/Contents/MacOS/cli`
 - Windows: `C:\Program Files (x86)\Tencent\微信web开发者工具\cli.bat`
 
-## 配置说明
+### 4. 配置私有设置
 
-编辑 `config.js` 文件进行配置：
+**重要：配置文件采用覆盖机制**
+
+创建 `config.local.js` 文件，只配置需要覆盖的部分：
+
+```bash
+# 创建本地配置文件
+touch config.local.js
+```
+
+**配置机制说明：**
+- `config.js` - 默认配置（提交到 Git，所有人共享）
+- `config.local.js` - 私有配置（不提交，只覆盖需要修改的部分）
+- `config.loader.js` - 配置加载器（自动合并两个配置文件）
+
+**配置示例：**
+
+**最小配置（只覆盖必要的路径）：**
+
+```javascript
+// config.local.js
+module.exports = {
+  gitMonitor: {
+    repositories: [{
+      path: '/你的项目路径/gaofenwx'
+    }]
+  },
+  mpMonitor: {
+    startup: {
+      path: '/你的项目路径/gaofenwx'
+    }
+  },
+  mpDeploy: {
+    projectPath: '/你的项目路径/gaofenwx'
+  }
+}
+```
+
+**完整配置示例（包含所有可覆盖项）：**
+
+```javascript
+// config.local.js
+module.exports = {
+  // Git 监控配置
+  gitMonitor: {
+    repositories: [
+      {
+        name: 'gaofenwx',
+        path: '/你的项目路径/gaofenwx',
+        branch: 'chenwen-codex',
+        enabled: true
+      }
+    ]
+  },
+
+  // 小程序监控配置
+  mpMonitor: {
+    startup: {
+      path: '/你的项目路径/gaofenwx',
+      // Windows 用户修改为：
+      // cliPath: 'C:\\Program Files (x86)\\Tencent\\微信web开发者工具\\cli.bat'
+    }
+  },
+
+  // Debug 上传配置
+  debugUpload: {
+    enabled: false, // 本地开发时可以关闭上传
+    // 如果需要上传，配置以下信息：
+    // host: '你的服务器IP',
+    // user: '你的用户名',
+    // remotePath: '/你的远程路径',
+    // identityFile: '/你的SSH密钥路径'
+  },
+
+  // 小程序部署配置
+  mpDeploy: {
+    projectPath: '/你的项目路径/gaofenwx'
+  }
+}
+```
+
+**Windows 用户配置示例：**
+
+```javascript
+// config.local.js (Windows)
+module.exports = {
+  gitMonitor: {
+    repositories: [{
+      path: 'D:\\Projects\\gaofenwx'
+    }]
+  },
+  mpMonitor: {
+    startup: {
+      path: 'D:\\Projects\\gaofenwx',
+      cliPath: 'C:\\Program Files (x86)\\Tencent\\微信web开发者工具\\cli.bat'
+    }
+  },
+  mpDeploy: {
+    projectPath: 'D:\\Projects\\gaofenwx',
+    cliPath: 'C:\\Program Files (x86)\\Tencent\\微信web开发者工具\\cli.bat'
+  }
+}
+```
+
+## 配置说明
 
 ### Git 监控配置
 
@@ -134,7 +237,7 @@ mpMonitor: {
       refreshDelay: 3000        // 刷新延迟
     },
     logs: {
-      clearOnStart: true,       // 启动时清空日志
+      clear: true,       // 启动时清空日志
       dir: '../debug/mp-monitor',
       generatePageLogs: true    // 是否生成页面日志
     },
@@ -278,7 +381,7 @@ errorCapture: {
 
 ```javascript
 logs: {
-  clearOnStart: true,
+  clear: true,
   dir: '../debug/mp-monitor',
   generatePageLogs: false  // 不生成页面日志，只生成错误日志
 }
@@ -391,7 +494,7 @@ gitMonitor: {
 
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `clearOnStart` | Boolean | `true` | 启动时是否清空旧日志文件 |
+| `clear` | Boolean | `true` | 启动时是否清空旧日志文件 |
 | `dir` | String | `'../debug/mp-monitor'` | 日志输出目录（相对于 mp-monitor 目录） |
 | `generatePageLogs` | Boolean | `true` | 是否生成页面日志文件 |
 
@@ -556,7 +659,7 @@ module.exports = {
     enabled: true,
     automation: {
       logs: {
-        clearOnStart: true,  // 每次启动清空日志
+        clear: true,  // 每次启动清空日志
         generatePageLogs: true  // 开发时建议开启
       },
       errorCapture: {
@@ -586,7 +689,7 @@ module.exports = {
     enabled: true,
     automation: {
       logs: {
-        clearOnStart: false,  // 保留历史日志
+        clear: false,  // 保留历史日志
         generatePageLogs: false  // 只记录错误
       },
       errorCapture: {

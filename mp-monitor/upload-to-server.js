@@ -1,7 +1,7 @@
 const { exec } = require('child_process')
 const path = require('path')
 const fs = require('fs-extra')
-const sharedConfig = require('../config')
+const sharedConfig = require('../config.loader')
 const debugConfig = sharedConfig.debugUpload
 
 // 生成上传唯一标识

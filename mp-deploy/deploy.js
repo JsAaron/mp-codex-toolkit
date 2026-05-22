@@ -2,7 +2,7 @@ const { spawn } = require('child_process')
 const fs = require('fs-extra')
 const path = require('path')
 
-const sharedConfig = require('../config')
+const sharedConfig = require('../config.loader')
 const config = sharedConfig.mpDeploy
 
 // 执行 CLI 命令

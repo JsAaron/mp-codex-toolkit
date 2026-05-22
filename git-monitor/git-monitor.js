@@ -2,9 +2,13 @@ const { exec, spawn } = require('child_process')
 const fs = require('fs')
 const path = require('path')
 
-const sharedConfig = require('../config')
+const sharedConfig = require('../config.loader')
 const gitConfig = sharedConfig.gitMonitor
 const mpConfig = sharedConfig.mpMonitor
+
+// 固定路径配置（内部定义）
+const LOG_FILE = path.join(__dirname, '../debug/git-monitor.log')
+const MP_MONITOR_SCRIPT = path.join(__dirname, '../mp-monitor/mp-monitor.js')
 
 let mpMonitorProcess = null
 
@@ -14,7 +18,7 @@ function log(message, level = 'INFO') {
   console.log(logMessage)
 
   try {
-    fs.appendFileSync(gitConfig.logFile, logMessage + '\n')
+    fs.appendFileSync(LOG_FILE, logMessage + '\n')
   } catch (error) {
     console.error('写入日志失败:', error.message)
   }
@@ -135,19 +139,19 @@ function startmpMonitor() {
     return false
   }
 
-  if (!fs.existsSync(mpConfig.scriptPath)) {
-    log(`mp-monitor 脚本不存在: ${mpConfig.scriptPath}`, 'ERROR')
+  if (!fs.existsSync(MP_MONITOR_SCRIPT)) {
+    log(`mp-monitor 脚本不存在: ${MP_MONITOR_SCRIPT}`, 'ERROR')
     return false
   }
 
   stopmpMonitor()
 
   log('🚀 启动 mp-monitor 进程...')
-  log(`📝 脚本路径: ${mpConfig.scriptPath}`)
+  log(`📝 脚本路径: ${MP_MONITOR_SCRIPT}`)
 
-  const mpMonitorDir = path.dirname(mpConfig.scriptPath)
+  const mpMonitorDir = path.dirname(MP_MONITOR_SCRIPT)
 
-  mpMonitorProcess = spawn('node', [mpConfig.scriptPath], {
+  mpMonitorProcess = spawn('node', [MP_MONITOR_SCRIPT], {
     cwd: mpMonitorDir,
     stdio: 'inherit'
   })
@@ -215,7 +219,7 @@ async function processRepository(repo, retryCount = 0) {
       if (pullResult.output) {
         log(`[${name}] ${pullResult.output}`)
       }
-      if (mpConfig.runOnPullSuccess) {
+      if (mpConfig.enabled) {
         log(`[${name}] 🔄 代码已更新，准备启动 mp-monitor...`)
         await new Promise(resolve => setTimeout(resolve, 2000))
         startmpMonitor()
@@ -269,7 +273,7 @@ log('=========================================')
 log('Git 监控程序启动')
 log('=========================================')
 if (mpConfig.enabled) {
-  log(`✅ mp-monitor 功能已启用 (拉取成功后${mpConfig.runOnPullSuccess ? '自动' : '不'}启动)`)
+  log(`✅ mp-monitor 功能已启用 (拉取成功后自动启动)`)
 } else {
   log('⚠️  mp-monitor 功能未启用')
 }

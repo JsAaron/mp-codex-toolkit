@@ -1,6 +1,6 @@
 const { spawn } = require('child_process')
 const automator = require('miniprogram-automator')
-const sharedConfig = require('../config')
+const sharedConfig = require('../config.loader')
 const fs = require('fs-extra')
 const path = require('path')
 const net = require('net')
@@ -395,7 +395,7 @@ async function main() {
 
   // 清空 debug-logs 目录
   const errorLogsDir = path.join(__dirname, mpConfig.automation.logs.dir)
-  if (mpConfig.automation.logs.clearOnStart) {
+  if (mpConfig.automation.logs.clear) {
     try {
       await fs.remove(errorLogsDir)
       console.log('🗑️  已清空 debug-logs 目录\n')
