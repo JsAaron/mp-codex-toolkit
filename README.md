@@ -45,20 +45,22 @@
 
 ```
 mp-codex-toolkit/
-├── config.js                 # 统一配置文件
-├── git-monitor/              # Git 监控模块
-│   └── git-monitor.js        # Git 监控主程序
-├── mp-monitor/               # 小程序监控模块
-│   ├── mp-monitor.js         # 小程序监控主程序
-│   └── upload-to-server.js   # 日志上传工具
-├── mp-deploy/                # 小程序部署模块
-│   └── deploy.js             # 部署脚本
-├── debug/                    # 日志输出目录
-│   ├── git-monitor.log       # Git 监控日志
-│   ├── mp-monitor/           # 小程序监控日志
-│   │   ├── page-error/       # 错误日志（含截图）
-│   │   └── page-logs/        # 页面日志
-└── start.sh                  # 启动脚本
+├── config.js                  # 统一配置文件（模板）
+├── config.local.js            # 本地配置文件（个人配置，不提交）
+├── config.loader.js           # 配置加载器
+├── git-monitor/               # Git 监控模块
+│   └── git-monitor.js         # Git 监控主程序
+├── mp-monitor/                # 小程序监控模块
+│   ├── mp-monitor.js          # 小程序监控主程序
+│   └── upload-to-server.js    # 日志上传工具
+├── mp-deploy/                 # 小程序部署模块
+│   └── deploy.js              # 部署脚本
+├── debug/                     # 日志输出目录
+│   ├── git-monitor.log        # Git 监控日志
+│   ├── mp-monitor/            # 小程序监控日志
+│   │   ├── page-error/        # 错误日志（含截图）
+│   │   └── page-logs/         # 页面日志
+└── start.sh                   # 启动脚本
 ```
 
 ## 安装
@@ -158,32 +160,9 @@ module.exports = {
     // identityFile: '/你的SSH密钥路径'
   },
 
-  // 小程序部署配置
+  // 小程序部署配置(单独使用，非必须配置)
   mpDeploy: {
     projectPath: '/你的项目路径/gaofenwx'
-  }
-}
-```
-
-**Windows 用户配置示例：**
-
-```javascript
-// config.local.js (Windows)
-module.exports = {
-  gitMonitor: {
-    repositories: [{
-      path: 'D:\\Projects\\gaofenwx'
-    }]
-  },
-  mpMonitor: {
-    startup: {
-      path: 'D:\\Projects\\gaofenwx',
-      cliPath: 'C:\\Program Files (x86)\\Tencent\\微信web开发者工具\\cli.bat'
-    }
-  },
-  mpDeploy: {
-    projectPath: 'D:\\Projects\\gaofenwx',
-    cliPath: 'C:\\Program Files (x86)\\Tencent\\微信web开发者工具\\cli.bat'
   }
 }
 ```
