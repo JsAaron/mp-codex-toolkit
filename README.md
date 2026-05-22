@@ -80,7 +80,7 @@ npm install
 
 ### 3. 配置微信开发者工具
 
-确保已安装微信开发者工具，并开启命令行工具：
+确保已安装微信开发者工具，进入微信开发者工具安装位置，并且能够找到对应的执行文件：
 
 - macOS: `/Applications/wechatwebdevtools.app/Contents/MacOS/cli`
 - Windows: `C:\Program Files (x86)\Tencent\微信web开发者工具\cli.bat`
@@ -92,7 +92,7 @@ npm install
 创建 `config.local.js` 文件，只配置需要覆盖的部分：
 
 ```bash
-# 创建本地配置文件
+# 单独创建本地配置文件
 touch config.local.js
 ```
 
@@ -100,29 +100,6 @@ touch config.local.js
 - `config.js` - 默认配置（提交到 Git，所有人共享）
 - `config.local.js` - 私有配置（不提交，只覆盖需要修改的部分）
 - `config.loader.js` - 配置加载器（自动合并两个配置文件）
-
-**配置示例：**
-
-**最小配置（只覆盖必要的路径）：**
-
-```javascript
-// config.local.js
-module.exports = {
-  gitMonitor: {
-    repositories: [{
-      path: '/你的项目路径/gaofenwx'
-    }]
-  },
-  mpMonitor: {
-    startup: {
-      path: '/你的项目路径/gaofenwx'
-    }
-  },
-  mpDeploy: {
-    projectPath: '/你的项目路径/gaofenwx'
-  }
-}
-```
 
 **完整配置示例（包含所有可覆盖项）：**
 
@@ -145,8 +122,8 @@ module.exports = {
   mpMonitor: {
     startup: {
       path: '/你的项目路径/gaofenwx',
-      // Windows 用户修改为：
-      // cliPath: 'C:\\Program Files (x86)\\Tencent\\微信web开发者工具\\cli.bat'
+      // 微信开发者工具的路径，windows如下(可能的路径)：
+      cliPath: 'C:\\Program Files (x86)\\Tencent\\微信web开发者工具\\cli.bat'
     }
   },
 
@@ -154,10 +131,10 @@ module.exports = {
   debugUpload: {
     enabled: false, // 本地开发时可以关闭上传
     // 如果需要上传，配置以下信息：
-    // host: '你的服务器IP',
-    // user: '你的用户名',
-    // remotePath: '/你的远程路径',
-    // identityFile: '/你的SSH密钥路径'
+    host: '你的服务器IP',
+    user: '你的用户名',
+    remotePath: '/你的远程路径',
+    identityFile: '/你的本地SSH密钥路径'
   },
 
   // 小程序部署配置(单独使用，非必须配置)
@@ -185,77 +162,6 @@ gitMonitor: {
   logFile: path.join(__dirname, 'debug/git-monitor.log'),
   retryTimes: 3,                // 失败重试次数
   retryDelay: 5000              // 重试延迟（毫秒）
-}
-```
-
-### 小程序监控配置
-
-```javascript
-mpMonitor: {
-  enabled: true,                // 是否启用
-  runOnPullSuccess: true,       // Git 拉取成功后是否自动运行
-  scriptPath: path.join(__dirname, 'mp-monitor/mp-monitor.js'),
-  
-  // 启动配置
-  startup: {
-    path: '/path/to/miniprogram',
-    cliPath: '/Applications/wechatwebdevtools.app/Contents/MacOS/cli',
-    port: 10984,
-    connection: {
-      timeout: 10000,
-      maxRetries: 3,
-      retryDelay: 3000
-    }
-  },
-  
-  // 自动化测试配置
-  automation: {
-    pageWatch: {
-      interval: 500,            // 页面监听间隔
-      autoRefresh: true,        // 是否自动刷新
-      refreshDelay: 3000        // 刷新延迟
-    },
-    logs: {
-      clear: true,       // 启动时清空日志
-      dir: '../debug/mp-monitor',
-      generatePageLogs: true    // 是否生成页面日志
-    },
-    // 错误捕获配置
-    errorCapture: {
-      console: {
-        error: true,            // 捕获 console.error
-        warn: false             // 捕获 console.warn
-      },
-      scripterror: true,        // 捕获脚本错误
-      pageerror: true,          // 捕获页面错误
-      exception: true,          // 捕获异常事件
-      systemError: true         // 捕获系统错误
-    }
-  }
-}
-```
-
-### 日志上传配置
-
-```javascript
-debugUpload: {
-  enabled: true,                // 是否启用上传
-  host: '43.106.0.58',
-  port: 22,
-  user: 'chenwen',
-  remotePath: '/home/chenwen/repository/gaofenwx/debug',
-  identityFile: '/Users/chenwen/.ssh/chenwen_key'
-}
-```
-
-### 部署配置
-
-```javascript
-mpDeploy: {
-  projectPath: '/path/to/miniprogram',
-  cliPath: '/Applications/wechatwebdevtools.app/Contents/MacOS/cli',
-  version: '1.0.0',
-  desc: '自动构建版本'
 }
 ```
 
