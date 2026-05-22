@@ -63,6 +63,16 @@ mp-codex-toolkit/
 └── start.sh                   # 启动脚本
 ```
 
+## 工作流程
+
+1. **Git 监控启动** → 定时检测远程仓库更新
+2. **发现更新** → 自动执行 `git pull`
+3. **拉取成功** → 触发小程序监控
+4. **小程序监控** → 启动微信开发者工具自动化
+5. **错误捕获** → 记录错误信息、截图、堆栈
+6. **日志上传** → 自动上传到远程服务器（可选）
+
+
 ## 安装
 
 ### 1. 克隆项目
@@ -144,27 +154,6 @@ module.exports = {
 }
 ```
 
-## 配置说明
-
-### Git 监控配置
-
-```javascript
-gitMonitor: {
-  interval: 10000,              // 检测间隔（毫秒）
-  repositories: [               // 监控的仓库列表
-    {
-      name: 'gaofenwx',
-      path: '/path/to/your/project',
-      branch: 'chenwen-codex',
-      enabled: true
-    }
-  ],
-  logFile: path.join(__dirname, 'debug/git-monitor.log'),
-  retryTimes: 3,                // 失败重试次数
-  retryDelay: 5000              // 重试延迟（毫秒）
-}
-```
-
 ## 使用方法
 
 ### 启动 Git 监控
@@ -185,7 +174,7 @@ cd mp-monitor
 node mp-monitor.js
 ```
 
-### 部署小程序
+### 单独部署小程序
 
 ```bash
 cd mp-deploy
@@ -236,14 +225,6 @@ debug/mp-monitor/page-logs/
 - `[ERROR]` - 发生错误时生成
 - `[NORMAL]` - 正常页面切换时生成
 
-## 工作流程
-
-1. **Git 监控启动** → 定时检测远程仓库更新
-2. **发现更新** → 自动执行 `git pull`
-3. **拉取成功** → 触发小程序监控
-4. **小程序监控** → 启动微信开发者工具自动化
-5. **错误捕获** → 记录错误信息、截图、堆栈
-6. **日志上传** → 自动上传到远程服务器（可选）
 
 ## 高级配置
 
