@@ -88,12 +88,13 @@ async function saveError(type, message, extraData = {}, pageLogPath = null) {
   }
   captured.add(key)
 
-  console.log(`\n${'='.repeat(60)}`)
+  console.log(`\n\n${'='.repeat(60)}`)
   console.log(`❌ 捕获到错误: ${type}`)
   console.log(`📝 错误信息: ${message}`)
   if (pageLogPath) {
     console.log(`🔗 关联页面日志: ${pageLogPath}`)
   }
+  console.log(`${'='.repeat(60)}`)
 
   const stackLocations = parseStackTrace(extraData.stack)
   if (stackLocations && stackLocations.length > 0) {
@@ -236,7 +237,6 @@ function bindAllListeners() {
   const enabledListeners = []
 
   // 1. console 监听：捕获所有类型的日志
-  console.log('🔧 正在绑定 console 监听器...')
   miniProgram.on('console', async msg => {
     // 优化：拼接 args 生成可读的 text，解决 text 为 undefined 的问题
     let text = msg.text
@@ -350,9 +350,7 @@ function bindAllListeners() {
     enabledListeners.push('error')
   }
 
-  console.log('✅ 事件监听已绑定（持久化模式，不受页面刷新影响）')
   console.log(`📊 已启用的监听器: ${enabledListeners.join(', ')}`)
-  console.log('⚠️  如果看不到 [Console捕获] 输出，说明小程序的 console 事件没有触发\n')
 }
 
 // 监听页面变化，热更新后重建监听
@@ -374,9 +372,6 @@ async function watchPageChange() {
 
       console.log(`\n${'='.repeat(60)}`)
       console.log(`📄 页面变化 #${pageReloadCount}: ${lastPagePath || '(初始)'} -> ${currentPath}`)
-      console.log(`⏰ 时间: ${new Date().toLocaleTimeString()}`)
-      console.log(`📝 当前已收集日志: ${currentPageLogs.length}条`)
-      console.log(`🎯 监听器状态: 持久化监听中（无需重新绑定）`)
       console.log(`${'='.repeat(60)}\n`)
       lastPagePath = currentPath
 
@@ -391,8 +386,6 @@ async function watchPageChange() {
 }
 
 async function main() {
-  console.log('启动微信小程序监听器...\n')
-
   // 清空 debug-logs 目录
   const errorLogsDir = path.join(__dirname, mpConfig.automation.logs.dir)
   if (mpConfig.automation.logs.clear) {
@@ -410,7 +403,6 @@ async function main() {
   const isPortUsed = await checkPortIsUsed(autoPort)
   if (isPortUsed) {
     console.log(`✅ 检测到 ${autoPort} 端口已被占用，开发者工具已启动`)
-    console.log(`🔗 直接连接到现有的自动化服务...\n`)
   } else {
     console.log(`🔄 ${autoPort} 端口未占用，启动开发者工具自动化模式...\n`)
 
@@ -433,11 +425,7 @@ async function main() {
   }
 
   // 等待开发者工具准备就绪
-  console.log('⏳ 等待开发者工具准备就绪...\n')
   await new Promise(resolve => setTimeout(resolve, mpConfig.startup.connection.retryDelay))
-
-  console.log('🔗 正在连接到微信开发者工具...\n')
-
   // 连接到开发者工具
   try {
     miniProgram = await automator.connect({
@@ -453,14 +441,9 @@ async function main() {
 
   try {
     // 立即绑定监听器（在页面加载前）
-    console.log('🔧 立即绑定所有监听器...\n')
     bindAllListeners()
-
-    console.log('✅ 监听器已就绪，开始监控...\n')
-
     // 主动刷新页面，触发错误重现（用于测试）
     try {
-      console.log('🔄 主动刷新页面以捕获初始化错误...\n')
       const page = await miniProgram.currentPage()
       const pagePath = page.path
       console.log(`📄 当前页面: ${pagePath}`)
@@ -468,7 +451,6 @@ async function main() {
       // 重新加载页面(路径需要以 / 开头)
       const url = pagePath.startsWith('/') ? pagePath : `/${pagePath}`
       await miniProgram.reLaunch(url)
-      console.log('✅ 页面已刷新，等待错误捕获...\n')
 
       // 等待页面加载完成
       await new Promise(resolve => setTimeout(resolve, mpConfig.automation.pageWatch.refreshDelay))

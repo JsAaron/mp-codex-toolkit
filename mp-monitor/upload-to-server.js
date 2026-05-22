@@ -20,7 +20,7 @@ async function cleanRemoteDir() {
     const sshCommand = `ssh ${identityOption}-p ${port} ${user}@${host} "rm -rf ${remotePath}/* && echo 'Cleaned'"`
 
     console.log('🗑️  清空服务器目录...')
-    console.log(`🔧 执行命令: ${sshCommand}\n`)
+    // console.log(`🔧 执行命令: ${sshCommand}\n`)
 
     exec(sshCommand, (error, stdout, stderr) => {
       if (error) {
@@ -48,15 +48,15 @@ async function uploadToServer(localPath) {
     const { host, port, user, remotePath, identityFile } = debugConfig
 
     console.log('📤 开始上传错误日志到服务器...')
-    console.log(`📍 服务器: ${user}@${host}:${port}`)
-    console.log(`📁 远程路径: ${remotePath}`)
-    console.log(`📂 本地路径: ${localPath}`)
+    // console.log(`📍 服务器: ${user}@${host}:${port}`)
+    // console.log(`📁 远程路径: ${remotePath}`)
+    // console.log(`📂 本地路径: ${localPath}`)
 
     const remoteDir = `${user}@${host}:${remotePath}`
     const identityOption = identityFile ? `-i ${identityFile} ` : ''
     const sshCommand = `scp ${identityOption}-P ${port} -r ${localPath}/* ${remoteDir}/`
 
-    console.log(`🔧 执行命令: ${sshCommand}\n`)
+    // console.log(`🔧 执行命令: ${sshCommand}\n`)
 
     exec(sshCommand, (error, stdout, stderr) => {
       if (error) {
@@ -114,7 +114,7 @@ async function uploadErrorLogs(errorLogsDir) {
     }
 
     // 3. 上传所有文件（包括 upload-status.json）
-    console.log('📤 上传中...\n')
+    // console.log('📤 上传中...\n')
     const uploadResult = await uploadToServer(errorLogsDir)
     if (!uploadResult.success) {
       return uploadResult
@@ -139,12 +139,6 @@ async function uploadErrorLogs(errorLogsDir) {
         resolve()
       })
     })
-
-    console.log(`\n${'='.repeat(60)}`)
-    console.log(`✅ 上传任务完成`)
-    console.log(`📋 上传ID: ${uploadId}`)
-    console.log(`${'='.repeat(60)}\n`)
-
     return { success: true, uploadId, message: '上传完成' }
   } catch (error) {
     console.error(`❌ 上传过程异常: ${error.message}`)

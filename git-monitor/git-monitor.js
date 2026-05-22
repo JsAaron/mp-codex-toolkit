@@ -146,9 +146,6 @@ function startmpMonitor() {
 
   stopmpMonitor()
 
-  log('🚀 启动 mp-monitor 进程...')
-  log(`📝 脚本路径: ${MP_MONITOR_SCRIPT}`)
-
   const mpMonitorDir = path.dirname(MP_MONITOR_SCRIPT)
 
   mpMonitorProcess = spawn('node', [MP_MONITOR_SCRIPT], {
@@ -171,8 +168,6 @@ function startmpMonitor() {
     log(`启动 mp-monitor 失败: ${error.message}`, 'ERROR')
     mpMonitorProcess = null
   })
-
-  log('✅ mp-monitor 进程已启动')
   return true
 }
 
@@ -180,7 +175,7 @@ async function processRepository(repo, retryCount = 0) {
   const { name, path: repoPath, branch } = repo
 
   try {
-    log(`[${name}] 开始检测...`)
+    log(`[${name}] 主动探测中...`)
     const hasLocalChanges = await checkLocalChanges(repoPath)
     if (hasLocalChanges) {
       log(`[${name}] ⚠️  检测到本地未提交的修改，跳过拉取`, 'WARN')
@@ -206,7 +201,7 @@ async function processRepository(repo, retryCount = 0) {
     }
 
     if (!updateInfo.hasUpdate) {
-      log(`[${name}] ✓ 无更新`)
+      // log(`[${name}] ✓ 无更新`)
       return
     }
 
@@ -219,8 +214,21 @@ async function processRepository(repo, retryCount = 0) {
       if (pullResult.output) {
         log(`[${name}] ${pullResult.output}`)
       }
+
+      // 验证拉取后的状态
+      try {
+        const localCommit = await execCommand(`git rev-parse ${branch}`, repoPath)
+        const remoteCommit = await execCommand(`git rev-parse origin/${branch}`, repoPath)
+        log(`[${name}] 📍 拉取后状态: 本地=${localCommit.substring(0, 7)}, 远程=${remoteCommit.substring(0, 7)}`)
+
+        if (localCommit !== remoteCommit) {
+          log(`[${name}] ⚠️  警告：拉取后本地和远程提交仍不一致！`, 'WARN')
+        }
+      } catch (error) {
+        log(`[${name}] ⚠️  无法验证拉取后状态`, 'WARN')
+      }
+
       if (mpConfig.enabled) {
-        log(`[${name}] 🔄 代码已更新，准备启动 mp-monitor...`)
         await new Promise(resolve => setTimeout(resolve, 2000))
         startmpMonitor()
       }
