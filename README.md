@@ -8,7 +8,7 @@
 2. **发现更新** → 自动执行 `git pull`
 3. **拉取成功** → 触发小程序监控
 4. **小程序监控** → 启动微信开发者工具自动化
-5. **错误捕获** → 记录错误信息、截图、堆栈
+5. **错误捕获** → 记录错误信息、截图、页面堆栈日志
 6. **日志上传** → 自动上传到远程服务器（可选）
 7. **自动修复** → 服务器根据上传的错误信息，通过配置Agent任务执行自动修复（服务器实现）
 
@@ -297,6 +297,8 @@ debugUpload: {
 ```javascript
 gitMonitor: {
   interval: 10000,
+  retryTimes: 3,
+  retryDelay: 5000,
   repositories: [
     {
       name: 'gaofenwx',
@@ -310,10 +312,7 @@ gitMonitor: {
       branch: 'main',
       enabled: false  // 暂时禁用
     }
-  ],
-  logFile: path.join(__dirname, 'debug/git-monitor.log'),
-  retryTimes: 3,
-  retryDelay: 5000
+  ]
 }
 ```
 
@@ -326,8 +325,6 @@ gitMonitor: {
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
 | `enabled` | Boolean | `true` | 是否启用小程序监控功能 |
-| `runOnPullSuccess` | Boolean | `true` | Git 拉取成功后是否自动启动小程序监控 |
-| `scriptPath` | String | - | 监控脚本路径，通常无需修改 |
 
 #### 2.2 startup - 启动配置
 
@@ -510,88 +507,6 @@ mpDeploy: {
   desc: '修复首页加载问题，优化性能'
 }
 ```
-
----
-
-## 配置最佳实践
-
-### 1. 开发环境配置
-
-```javascript
-module.exports = {
-  gitMonitor: {
-    interval: 10000,  // 开发时可以设置短一些
-    // ...
-  },
-  mpMonitor: {
-    enabled: true,
-    automation: {
-      logs: {
-        clear: true,  // 每次启动清空日志
-        generatePageLogs: true  // 开发时建议开启
-      },
-      errorCapture: {
-        console: {
-          error: true,
-          warn: true  // 开发时建议捕获警告
-        },
-        // 全部开启
-      }
-    }
-  },
-  debugUpload: {
-    enabled: false  // 开发时可以关闭上传
-  }
-}
-```
-
-### 2. 生产环境配置
-
-```javascript
-module.exports = {
-  gitMonitor: {
-    interval: 30000,  // 生产环境可以设置长一些
-    // ...
-  },
-  mpMonitor: {
-    enabled: true,
-    automation: {
-      logs: {
-        clear: false,  // 保留历史日志
-        generatePageLogs: false  // 只记录错误
-      },
-      errorCapture: {
-        console: {
-          error: true,
-          warn: false  // 生产环境忽略警告
-        },
-        // 只捕获严重错误
-      }
-    }
-  },
-  debugUpload: {
-    enabled: true  // 生产环境开启上传
-  }
-}
-```
-
-### 3. 多环境配置
-
-可以创建多个配置文件：
-
-```bash
-config.dev.js      # 开发环境
-config.prod.js     # 生产环境
-config.test.js     # 测试环境
-```
-
-然后通过环境变量切换：
-
-```javascript
-const env = process.env.NODE_ENV || 'dev'
-module.exports = require(`./config.${env}.js`)
-```
-
 ---
 
 ## 配置验证
