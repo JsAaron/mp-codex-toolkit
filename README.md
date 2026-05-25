@@ -288,6 +288,8 @@ debugUpload: {
 | `repositories[].path` | String | - | 仓库本地路径（绝对路径），必须是有效的 Git 仓库 |
 | `repositories[].branch` | String | - | 监控的分支名称，如 `main`、`chenwen-codex` |
 | `repositories[].enabled` | Boolean | `true` | 是否启用该仓库的监控，`false` 则跳过 |
+| `repositories[].type` | String | - | 仓库类型，设置为 `backend` 时仅拉取代码，不触发小程序监控 |
+| `repositories[].afterPull` | String | - | 拉取成功后的动作，`mp-monitor` 表示启动小程序监控，`none` 表示不执行后续动作 |
 | `logFile` | String | - | Git 监控日志文件路径，建议使用绝对路径 |
 | `retryTimes` | Number | `3` | 拉取失败时的重试次数，0 表示不重试 |
 | `retryDelay` | Number | `5000` | 重试间隔时间（毫秒） |
@@ -307,10 +309,12 @@ gitMonitor: {
       enabled: true
     },
     {
-      name: 'admin-panel',
-      path: '/Users/chenwen/work/项目/admin',
-      branch: 'main',
-      enabled: false  // 暂时禁用
+      name: 'gzhServer',
+      path: '/Users/chenwen/work/项目/gzhServer',
+      branch: 'cw-dev-525',
+      enabled: true,
+      type: 'backend',
+      afterPull: 'none'
     }
   ]
 }

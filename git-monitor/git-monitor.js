@@ -28,7 +28,7 @@ function execCommand(command, cwd) {
   return new Promise((resolve, reject) => {
     exec(command, { cwd, timeout: 30000 }, (error, stdout, stderr) => {
       if (error) {
-        reject({ error, stderr })
+        reject({ error, stdout: stdout.trim(), stderr: stderr.trim() })
         return
       }
       resolve(stdout.trim())
@@ -36,12 +36,24 @@ function execCommand(command, cwd) {
   })
 }
 
+function getCommandErrorMessage(error) {
+  return [error.error?.message, error.stderr, error.stdout].filter(Boolean).join('\n')
+}
+
+function shouldStartMpMonitor(repo) {
+  if (repo.afterPull) {
+    return repo.afterPull === 'mp-monitor'
+  }
+
+  return repo.type !== 'backend'
+}
+
 async function checkLocalChanges(repoPath) {
   try {
     const status = await execCommand('git status --porcelain', repoPath)
     return status.length > 0
   } catch (error) {
-    log(`检查本地修改失败: ${error.error?.message || error.stderr}`, 'ERROR')
+    log(`检查本地修改失败: ${getCommandErrorMessage(error)}`, 'ERROR')
     return false
   }
 }
@@ -51,7 +63,7 @@ async function fetchRemote(repoPath, branch) {
     await execCommand(`git fetch origin ${branch}`, repoPath)
     return true
   } catch (error) {
-    log(`fetch 失败: ${error.error?.message || error.stderr}`, 'ERROR')
+    log(`fetch 失败: ${getCommandErrorMessage(error)}`, 'ERROR')
     return false
   }
 }
@@ -80,7 +92,7 @@ async function checkForUpdates(repoPath, branch) {
 
     return { hasUpdate: false }
   } catch (error) {
-    log(`检查更新失败: ${error.error?.message || error.stderr}`, 'ERROR')
+    log(`检查更新失败: ${getCommandErrorMessage(error)}`, 'ERROR')
     return { hasUpdate: false, error: true }
   }
 }
@@ -92,7 +104,7 @@ async function pullChanges(repoPath, branch) {
   } catch (error) {
     return {
       success: false,
-      error: error.error?.message || error.stderr
+      error: getCommandErrorMessage(error)
     }
   }
 }
@@ -102,7 +114,7 @@ async function stashChanges(repoPath) {
     await execCommand('git stash save "Auto-stash by git-monitor"', repoPath)
     return true
   } catch (error) {
-    log(`暂存失败: ${error.error?.message || error.stderr}`, 'ERROR')
+    log(`暂存失败: ${getCommandErrorMessage(error)}`, 'ERROR')
     return false
   }
 }
@@ -112,7 +124,7 @@ async function popStash(repoPath) {
     await execCommand('git stash pop', repoPath)
     return true
   } catch (error) {
-    log(`恢复暂存失败: ${error.error?.message || error.stderr}`, 'WARN')
+    log(`恢复暂存失败: ${getCommandErrorMessage(error)}`, 'WARN')
     return false
   }
 }
@@ -228,9 +240,11 @@ async function processRepository(repo, retryCount = 0) {
         log(`[${name}] ⚠️  无法验证拉取后状态`, 'WARN')
       }
 
-      if (mpConfig.enabled) {
+      if (mpConfig.enabled && shouldStartMpMonitor(repo)) {
         await new Promise(resolve => setTimeout(resolve, 2000))
         startmpMonitor()
+      } else if (!shouldStartMpMonitor(repo)) {
+        log(`[${name}] 后端仓库已拉取完成，跳过 mp-monitor`)
       }
     } else {
       log(`[${name}] ❌ 拉取失败: ${pullResult.error}`, 'ERROR')
