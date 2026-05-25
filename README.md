@@ -295,6 +295,8 @@ debugUpload: {
 | `retryTimes` | Number | `3` | 拉取失败时的重试次数，0 表示不重试 |
 | `retryDelay` | Number | `5000` | 重试间隔时间（毫秒） |
 
+> 私有仓库建议使用 SSH remote（如 `git@github.com:owner/repo.git`）或系统级 Git 凭据 helper。后台监控会禁用 VS Code askpass，避免 HTTPS 凭据弹窗在无交互环境中卡到超时。
+
 **示例：**
 
 ```javascript

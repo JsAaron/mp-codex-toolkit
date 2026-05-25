@@ -26,15 +26,27 @@ function log(message, level = 'INFO') {
 
 const DEFAULT_COMMAND_TIMEOUT = 30000
 
+function buildGitEnv() {
+  const env = { ...process.env }
+
+  // VS Code 注入的 askpass 在后台/nohup 场景下可能没有可用 IPC，GitHub HTTPS 认证会卡到超时。
+  delete env.GIT_ASKPASS
+  delete env.SSH_ASKPASS
+  delete env.VSCODE_GIT_ASKPASS_NODE
+  delete env.VSCODE_GIT_ASKPASS_EXTRA_ARGS
+  delete env.VSCODE_GIT_ASKPASS_MAIN
+  delete env.VSCODE_GIT_IPC_HANDLE
+
+  env.GIT_TERMINAL_PROMPT = '0'
+  return env
+}
+
 function execGit(args, cwd, options = {}) {
   return new Promise((resolve, reject) => {
     execFile('git', args, {
       cwd,
       timeout: options.timeout || DEFAULT_COMMAND_TIMEOUT,
-      env: {
-        ...process.env,
-        GIT_TERMINAL_PROMPT: '0'
-      }
+      env: buildGitEnv()
     }, (error, stdout, stderr) => {
       if (error) {
         reject({ error, stdout: stdout.trim(), stderr: stderr.trim() })
