@@ -283,6 +283,7 @@ debugUpload: {
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
 | `interval` | Number | `10000` | 检测间隔时间（毫秒），建议不低于 5000ms |
+| `fetchTimeout` | Number | `30000` | fetch 超时时间（毫秒），网络慢或后端仓库较大时可调大 |
 | `repositories` | Array | `[]` | 监控的仓库列表，支持多仓库 |
 | `repositories[].name` | String | - | 仓库名称，用于日志标识，建议使用项目名 |
 | `repositories[].path` | String | - | 仓库本地路径（绝对路径），必须是有效的 Git 仓库 |
@@ -299,6 +300,7 @@ debugUpload: {
 ```javascript
 gitMonitor: {
   interval: 10000,
+  fetchTimeout: 30000,
   retryTimes: 3,
   retryDelay: 5000,
   repositories: [

@@ -1,4 +1,4 @@
-const { exec, spawn } = require('child_process')
+const { execFile, spawn } = require('child_process')
 const fs = require('fs')
 const path = require('path')
 
@@ -24,9 +24,18 @@ function log(message, level = 'INFO') {
   }
 }
 
-function execCommand(command, cwd) {
+const DEFAULT_COMMAND_TIMEOUT = 30000
+
+function execGit(args, cwd, options = {}) {
   return new Promise((resolve, reject) => {
-    exec(command, { cwd, timeout: 30000 }, (error, stdout, stderr) => {
+    execFile('git', args, {
+      cwd,
+      timeout: options.timeout || DEFAULT_COMMAND_TIMEOUT,
+      env: {
+        ...process.env,
+        GIT_TERMINAL_PROMPT: '0'
+      }
+    }, (error, stdout, stderr) => {
       if (error) {
         reject({ error, stdout: stdout.trim(), stderr: stderr.trim() })
         return
@@ -37,7 +46,17 @@ function execCommand(command, cwd) {
 }
 
 function getCommandErrorMessage(error) {
-  return [error.error?.message, error.stderr, error.stdout].filter(Boolean).join('\n')
+  const details = []
+  const commandError = error.error
+
+  if (commandError?.message) details.push(commandError.message)
+  if (commandError?.code !== undefined) details.push(`exitCode=${commandError.code}`)
+  if (commandError?.signal) details.push(`signal=${commandError.signal}`)
+  if (commandError?.killed) details.push('killed=true')
+  if (error.stderr) details.push(error.stderr)
+  if (error.stdout) details.push(error.stdout)
+
+  return details.filter(Boolean).join('\n')
 }
 
 function shouldStartMpMonitor(repo) {
@@ -50,7 +69,7 @@ function shouldStartMpMonitor(repo) {
 
 async function checkLocalChanges(repoPath) {
   try {
-    const status = await execCommand('git status --porcelain', repoPath)
+    const status = await execGit(['status', '--porcelain'], repoPath)
     return status.length > 0
   } catch (error) {
     log(`检查本地修改失败: ${getCommandErrorMessage(error)}`, 'ERROR')
@@ -60,7 +79,9 @@ async function checkLocalChanges(repoPath) {
 
 async function fetchRemote(repoPath, branch) {
   try {
-    await execCommand(`git fetch origin ${branch}`, repoPath)
+    await execGit(['fetch', 'origin', `refs/heads/${branch}:refs/remotes/origin/${branch}`], repoPath, {
+      timeout: gitConfig.fetchTimeout || DEFAULT_COMMAND_TIMEOUT
+    })
     return true
   } catch (error) {
     log(`fetch 失败: ${getCommandErrorMessage(error)}`, 'ERROR')
@@ -70,11 +91,11 @@ async function fetchRemote(repoPath, branch) {
 
 async function checkForUpdates(repoPath, branch) {
   try {
-    const localCommit = await execCommand(`git rev-parse ${branch}`, repoPath)
-    const remoteCommit = await execCommand(`git rev-parse origin/${branch}`, repoPath)
+    const localCommit = await execGit(['rev-parse', branch], repoPath)
+    const remoteCommit = await execGit(['rev-parse', `origin/${branch}`], repoPath)
 
     if (localCommit !== remoteCommit) {
-      const commitCount = await execCommand(`git rev-list --count ${branch}..origin/${branch}`, repoPath)
+      const commitCount = await execGit(['rev-list', '--count', `${branch}..origin/${branch}`], repoPath)
       const count = parseInt(commitCount)
 
       if (count > 0) {
@@ -99,7 +120,7 @@ async function checkForUpdates(repoPath, branch) {
 
 async function pullChanges(repoPath, branch) {
   try {
-    const result = await execCommand(`git pull --rebase origin ${branch}`, repoPath)
+    const result = await execGit(['pull', '--rebase', 'origin', branch], repoPath)
     return { success: true, output: result }
   } catch (error) {
     return {
@@ -111,7 +132,7 @@ async function pullChanges(repoPath, branch) {
 
 async function stashChanges(repoPath) {
   try {
-    await execCommand('git stash save "Auto-stash by git-monitor"', repoPath)
+    await execGit(['stash', 'push', '-m', 'Auto-stash by git-monitor'], repoPath)
     return true
   } catch (error) {
     log(`暂存失败: ${getCommandErrorMessage(error)}`, 'ERROR')
@@ -121,7 +142,7 @@ async function stashChanges(repoPath) {
 
 async function popStash(repoPath) {
   try {
-    await execCommand('git stash pop', repoPath)
+    await execGit(['stash', 'pop'], repoPath)
     return true
   } catch (error) {
     log(`恢复暂存失败: ${getCommandErrorMessage(error)}`, 'WARN')
@@ -229,8 +250,8 @@ async function processRepository(repo, retryCount = 0) {
 
       // 验证拉取后的状态
       try {
-        const localCommit = await execCommand(`git rev-parse ${branch}`, repoPath)
-        const remoteCommit = await execCommand(`git rev-parse origin/${branch}`, repoPath)
+        const localCommit = await execGit(['rev-parse', branch], repoPath)
+        const remoteCommit = await execGit(['rev-parse', `origin/${branch}`], repoPath)
         log(`[${name}] 📍 拉取后状态: 本地=${localCommit.substring(0, 7)}, 远程=${remoteCommit.substring(0, 7)}`)
 
         if (localCommit !== remoteCommit) {
