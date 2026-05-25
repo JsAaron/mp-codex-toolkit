@@ -90,6 +90,33 @@ async function checkLocalChanges(repoPath) {
   }
 }
 
+function githubHttpsToSsh(remoteUrl) {
+  const match = String(remoteUrl || '').match(/^https:\/\/github\.com\/(.+?)(?:\.git)?\/?$/)
+  return match ? `git@github.com:${match[1]}.git` : ''
+}
+
+async function getRemoteUrl(repoPath) {
+  return execGit(['remote', 'get-url', 'origin'], repoPath)
+}
+
+async function ensureGithubSshRemote(repo) {
+  if (gitConfig.preferSshForGithub === false || repo.preferSshForGithub === false) {
+    return
+  }
+
+  try {
+    const remoteUrl = await getRemoteUrl(repo.path)
+    log(`[${repo.name}] origin: ${remoteUrl}`)
+    const sshUrl = githubHttpsToSsh(remoteUrl)
+    if (!sshUrl) return
+
+    await execGit(['remote', 'set-url', 'origin', sshUrl], repo.path)
+    log(`[${repo.name}] 已将 GitHub remote 切换为 SSH: ${sshUrl}`)
+  } catch (error) {
+    log(`[${repo.name}] 检查 Git remote 失败: ${getCommandErrorMessage(error)}`, 'WARN')
+  }
+}
+
 async function fetchRemote(repoPath, branch, timeout = DEFAULT_FETCH_TIMEOUT) {
   try {
     await execGit(['fetch', 'origin', `refs/heads/${branch}:refs/remotes/origin/${branch}`], repoPath, {
@@ -224,6 +251,8 @@ async function processRepository(repo, retryCount = 0) {
 
   try {
     log(`[${name}] 主动探测中...`)
+    await ensureGithubSshRemote(repo)
+
     const hasLocalChanges = await checkLocalChanges(repoPath)
     if (hasLocalChanges) {
       log(`[${name}] ⚠️  检测到本地未提交的修改，跳过拉取`, 'WARN')
@@ -301,6 +330,9 @@ async function monitorLoop() {
 
   log(`开始监控 ${enabledRepos.length} 个仓库，检测间隔: ${gitConfig.interval / 1000} 秒`)
   log(`监控仓库: ${enabledRepos.map(r => `${r.name}(${r.branch})`).join(', ')}`)
+  enabledRepos.forEach(repo => {
+    log(`[${repo.name}] 路径: ${repo.path}`)
+  })
 
   while (true) {
     for (const repo of enabledRepos) {

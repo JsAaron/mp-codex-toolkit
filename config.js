@@ -13,6 +13,7 @@ module.exports = {
   gitMonitor: {
     interval: 10000, // 检测间隔（毫秒）
     fetchTimeout: 120000, // fetch 超时时间（毫秒）
+    preferSshForGithub: true, // GitHub HTTPS remote 自动切换为 SSH，避免后台监控受 HTTPS 连接/凭据影响
     retryTimes: 3, // 失败重试次数
     retryDelay: 5000, // 重试间隔（毫秒）
 

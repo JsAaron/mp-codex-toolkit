@@ -284,6 +284,7 @@ debugUpload: {
 |------|------|--------|------|
 | `interval` | Number | `10000` | 检测间隔时间（毫秒），建议不低于 5000ms |
 | `fetchTimeout` | Number | `120000` | fetch 超时时间（毫秒），网络慢或后端仓库较大时可调大；仓库配置中可单独覆盖 |
+| `preferSshForGithub` | Boolean | `true` | 检测到 GitHub HTTPS remote 时自动切换为 SSH remote，减少后台监控的 HTTPS 连接和凭据问题 |
 | `repositories` | Array | `[]` | 监控的仓库列表，支持多仓库 |
 | `repositories[].name` | String | - | 仓库名称，用于日志标识，建议使用项目名 |
 | `repositories[].path` | String | - | 仓库本地路径（绝对路径），必须是有效的 Git 仓库 |
@@ -303,6 +304,7 @@ debugUpload: {
 gitMonitor: {
   interval: 10000,
   fetchTimeout: 120000,
+  preferSshForGithub: true,
   retryTimes: 3,
   retryDelay: 5000,
   repositories: [
