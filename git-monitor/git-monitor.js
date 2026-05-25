@@ -25,6 +25,7 @@ function log(message, level = 'INFO') {
 }
 
 const DEFAULT_COMMAND_TIMEOUT = 30000
+const DEFAULT_FETCH_TIMEOUT = 120000
 
 function buildGitEnv() {
   const env = { ...process.env }
@@ -89,15 +90,17 @@ async function checkLocalChanges(repoPath) {
   }
 }
 
-async function fetchRemote(repoPath, branch) {
+async function fetchRemote(repoPath, branch, timeout = DEFAULT_FETCH_TIMEOUT) {
   try {
     await execGit(['fetch', 'origin', `refs/heads/${branch}:refs/remotes/origin/${branch}`], repoPath, {
-      timeout: gitConfig.fetchTimeout || DEFAULT_COMMAND_TIMEOUT
+      timeout
     })
-    return true
+    return { success: true }
   } catch (error) {
-    log(`fetch 失败: ${getCommandErrorMessage(error)}`, 'ERROR')
-    return false
+    return {
+      success: false,
+      error: getCommandErrorMessage(error)
+    }
   }
 }
 
@@ -227,14 +230,15 @@ async function processRepository(repo, retryCount = 0) {
       return
     }
 
-    const fetchSuccess = await fetchRemote(repoPath, branch)
-    if (!fetchSuccess) {
+    const fetchTimeout = repo.fetchTimeout || gitConfig.fetchTimeout || DEFAULT_FETCH_TIMEOUT
+    const fetchResult = await fetchRemote(repoPath, branch, fetchTimeout)
+    if (!fetchResult.success) {
       if (retryCount < gitConfig.retryTimes) {
-        log(`[${name}] 重试 ${retryCount + 1}/${gitConfig.retryTimes}...`, 'WARN')
+        log(`[${name}] fetch 失败，将重试 ${retryCount + 1}/${gitConfig.retryTimes}: ${fetchResult.error}`, 'WARN')
         await new Promise(resolve => setTimeout(resolve, gitConfig.retryDelay))
         return await processRepository(repo, retryCount + 1)
       }
-      log(`[${name}] ❌ fetch 失败，已达最大重试次数`, 'ERROR')
+      log(`[${name}] ❌ fetch 失败，已达最大重试次数: ${fetchResult.error}`, 'ERROR')
       return
     }
 

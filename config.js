@@ -12,7 +12,7 @@ module.exports = {
   // ==================== Git 监控配置 ====================
   gitMonitor: {
     interval: 10000, // 检测间隔（毫秒）
-    fetchTimeout: 30000, // fetch 超时时间（毫秒）
+    fetchTimeout: 120000, // fetch 超时时间（毫秒）
     retryTimes: 3, // 失败重试次数
     retryDelay: 5000, // 重试间隔（毫秒）
 
