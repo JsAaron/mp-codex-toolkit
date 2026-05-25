@@ -364,17 +364,14 @@ async function watchPageChange() {
       if (pageReloadCount > 0) {
         // await savePageLogs('page-leave')
       }
-
       // 重置当前页面周期的日志
       currentPageLogs = []
       currentPageStartTime = Date.now()
       pageReloadCount++
-
-      console.log(`\n${'='.repeat(60)}`)
-      console.log(`📄 页面变化 #${pageReloadCount}: ${lastPagePath || '(初始)'} -> ${currentPath}`)
-      console.log(`${'='.repeat(60)}\n`)
+      // console.log(`\n${'='.repeat(60)}`)
+      // console.log(`📄 页面变化 #${pageReloadCount}: ${lastPagePath || '(初始)'} -> ${currentPath}`)
+      // console.log(`${'='.repeat(60)}\n`)
       lastPagePath = currentPath
-
       // 延迟后生成进入页面的日志（等待页面初始化的日志被捕获）
       setTimeout(async () => {
         await savePageLogs('page-enter')

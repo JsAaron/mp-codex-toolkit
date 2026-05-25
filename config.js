@@ -21,6 +21,12 @@ module.exports = {
         path: '/Users/chenwen/work/长沙新学堂项目/项目-高分派/微信/gaofenwx',
         branch: 'chenwen-codex',
         enabled: true
+      },
+      {
+        name: 'gzhServer',
+        path: '/Users/chenwen/work/长沙新学堂项目/项目-高分派/微信/gzhServer',
+        branch: 'cw-dev-525',
+        enabled: true
       }
     ]
   },
@@ -67,7 +73,7 @@ module.exports = {
 
   // ==================== Debug 上传配置 ====================
   debugUpload: {
-    enabled: true,
+    enabled: false,
     host: '43.106.0.58',
     port: 22,
     user: 'chenwen',
