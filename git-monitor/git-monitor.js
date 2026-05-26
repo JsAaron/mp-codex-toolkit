@@ -77,6 +77,10 @@ function shouldStartMpMonitor(repo) {
     return repo.afterPull === 'mp-monitor'
   }
 
+  if (repo.type) {
+    return repo.type === 'miniapp'
+  }
+
   return repo.type !== 'backend'
 }
 

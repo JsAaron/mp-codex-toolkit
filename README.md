@@ -125,6 +125,7 @@ module.exports = {
         name: 'gaofenwx',
         path: '/你的项目路径/gaofenwx',
         branch: 'chenwen-codex',
+        type: 'miniapp',
         enabled: true
       }
     ]
@@ -290,11 +291,17 @@ debugUpload: {
 | `repositories[].path` | String | - | 仓库本地路径（绝对路径），必须是有效的 Git 仓库 |
 | `repositories[].branch` | String | - | 监控的分支名称，如 `main`、`chenwen-codex` |
 | `repositories[].enabled` | Boolean | `true` | 是否启用该仓库的监控，`false` 则跳过 |
-| `repositories[].type` | String | - | 仓库类型，设置为 `backend` 时仅拉取代码，不触发小程序监控 |
-| `repositories[].afterPull` | String | - | 拉取成功后的动作，`mp-monitor` 表示启动小程序监控，`none` 表示不执行后续动作 |
+| `repositories[].type` | String | - | 仓库类型，必填。`miniapp` 表示小程序仓库，拉取成功后会触发小程序监控；`backend` 表示后端仓库，仅拉取代码，不触发小程序监控 |
 | `logFile` | String | - | Git 监控日志文件路径，建议使用绝对路径 |
 | `retryTimes` | Number | `3` | 拉取失败时的重试次数，0 表示不重试 |
 | `retryDelay` | Number | `5000` | 重试间隔时间（毫秒） |
+
+仓库类型需要明确配置：
+
+- `type: 'miniapp'`：小程序仓库。拉取成功后会启动 `mp-monitor`。
+- `type: 'backend'`：后端仓库。只执行 Git 监控和代码拉取，不启动 `mp-monitor`。
+
+`afterPull` 是旧配置方式，新配置不需要再写。后端仓库配置了 `type: 'backend'` 后，不需要额外写 `afterPull: 'none'`。
 
 > 私有仓库建议使用 SSH remote（如 `git@github.com:owner/repo.git`）或系统级 Git 凭据 helper。后台监控会禁用 VS Code askpass，避免 HTTPS 凭据弹窗在无交互环境中卡到超时。
 
@@ -312,6 +319,7 @@ gitMonitor: {
       name: 'gaofenwx',
       path: '/Users/chenwen/work/项目/gaofenwx',
       branch: 'chenwen-codex',
+      type: 'miniapp',
       enabled: true
     },
     {
@@ -319,8 +327,7 @@ gitMonitor: {
       path: '/Users/chenwen/work/项目/gzhServer',
       branch: 'cw-dev-525',
       enabled: true,
-      type: 'backend',
-      afterPull: 'none'
+      type: 'backend'
     }
   ]
 }

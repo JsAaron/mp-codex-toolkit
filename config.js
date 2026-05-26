@@ -22,6 +22,7 @@ module.exports = {
         name: 'gaofenwx',
         path: '/Users/chenwen/work/长沙新学堂项目/项目-高分派/微信/gaofenwx',
         branch: 'chenwen-codex',
+        type: 'miniapp',
         enabled: true
       },
       {
@@ -29,8 +30,7 @@ module.exports = {
         path: '/Users/chenwen/work/长沙新学堂项目/项目-高分派/微信/gzhServer',
         branch: 'cw-dev-525',
         enabled: true,
-        type: 'backend',
-        afterPull: 'none'
+        type: 'backend'
       }
     ]
   },
