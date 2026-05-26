@@ -101,19 +101,19 @@ npm install
 
 **重要：配置文件采用覆盖机制**
 
-创建 `config.local.js` 文件，只配置需要覆盖的部分：
+复制个人配置模板为 `config.local.js`，只配置需要覆盖的部分：
 
 ```bash
-# 单独创建本地配置文件
-touch config.local.js
+cp config.local.example.js config.local.js
 ```
 
 **配置机制说明：**
 - `config.js` - 默认配置（提交到 Git，所有人共享）
+- `config.local.example.js` - 个人配置模板（提交到 Git，供复制参考）
 - `config.local.js` - 私有配置（不提交，只覆盖需要修改的部分）
 - `config.loader.js` - 配置加载器（自动合并两个配置文件）
 
-**完整配置示例（包含所有可覆盖项）：**
+**个人配置模板示例（完整内容见 `config.local.example.js`）：**
 
 ```javascript
 // config.local.js
@@ -126,6 +126,13 @@ module.exports = {
         path: '/你的项目路径/gaofenwx',
         branch: 'chenwen-codex',
         type: 'miniapp',
+        enabled: true
+      },
+      {
+        name: 'gzhServer',
+        path: '/你的项目路径/gzhServer',
+        branch: 'cw-dev-525',
+        type: 'backend',
         enabled: true
       }
     ]
