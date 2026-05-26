@@ -110,10 +110,10 @@ async function ensureGithubSshRemote(repo) {
 
   try {
     const remoteUrl = await getRemoteUrl(repo.path)
-    log(`[${repo.name}] origin: ${remoteUrl}`)
     const sshUrl = githubHttpsToSsh(remoteUrl)
     if (!sshUrl) return
 
+    log(`[${repo.name}] 检测到 GitHub HTTPS remote，建议使用 SSH remote 以减少后台 fetch 失败: ${remoteUrl} -> ${sshUrl}`, 'WARN')
     await execGit(['remote', 'set-url', 'origin', sshUrl], repo.path)
     log(`[${repo.name}] 已将 GitHub remote 切换为 SSH: ${sshUrl}`)
   } catch (error) {

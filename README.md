@@ -310,7 +310,7 @@ debugUpload: {
 
 `afterPull` 是旧配置方式，新配置不需要再写。后端仓库配置了 `type: 'backend'` 后，不需要额外写 `afterPull: 'none'`。
 
-> 私有仓库建议使用 SSH remote（如 `git@github.com:owner/repo.git`）或系统级 Git 凭据 helper。后台监控会禁用 VS Code askpass，避免 HTTPS 凭据弹窗在无交互环境中卡到超时。
+> 私有仓库建议使用 SSH remote（如 `git@github.com:owner/repo.git`）或系统级 Git 凭据 helper。后台监控会禁用 VS Code askpass，避免 HTTPS 凭据弹窗在无交互环境中卡到超时。检测到 GitHub HTTPS remote 时，监控会提示用户并自动切换为 SSH remote；已经是 SSH remote 的仓库不会重复打印 origin。
 
 **示例：**
 
