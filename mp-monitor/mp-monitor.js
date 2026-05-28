@@ -5,6 +5,7 @@ const fs = require('fs-extra')
 const path = require('path')
 const net = require('net')
 const { uploadErrorLogs } = require('./upload-to-server')
+const { writeFixTask } = require('../auto-fix/task-writer')
 
 const mpConfig = sharedConfig.mpMonitor
 const debugConfig = sharedConfig.debugUpload
@@ -126,25 +127,35 @@ async function saveError(type, message, extraData = {}, pageLogPath = null) {
       console.warn(`⚠️ 获取页面/截图失败: ${e.message}`)
     }
 
+    const errorJsonPath = path.join(errorDir, 'error.json')
+    const screenshotPath = path.join(errorDir, 'screenshot.png')
+    const errorData = {
+      type,
+      message,
+      page: pagePath,
+      time: new Date().toISOString(),
+      pageLogFile: pageLogPath || null, // 关联的页面日志文件
+      stackLocations,
+      ...extraData
+    }
+
     // 修复：写入JSON前确认目录存在
     await fs.ensureDir(errorDir)
-    await fs.writeFile(
-      path.join(errorDir, 'error.json'),
-      JSON.stringify(
-        {
-          type,
-          message,
-          page: pagePath,
-          time: new Date().toISOString(),
-          pageLogFile: pageLogPath || null, // 关联的页面日志文件
-          stackLocations,
-          ...extraData
-        },
-        null,
-        2
-      )
-    )
+    await fs.writeFile(errorJsonPath, JSON.stringify(errorData, null, 2))
     console.log(`✅ 已保存到: ${mpConfig.automation.logs.dir}/page-error/${dirName}/\n`)
+
+    try {
+      const fixTaskResult = await writeFixTask({
+        ...errorData,
+        errorDir,
+        errorJsonPath,
+        screenshotPath: await fs.pathExists(screenshotPath) ? screenshotPath : null,
+        raw: extraData
+      })
+      console.log(`🧩 已生成 Codex 修复任务: ${fixTaskResult.latestRequestPath}`)
+    } catch (taskError) {
+      console.error(`⚠️ 生成 Codex 修复任务失败: ${taskError.message}`)
+    }
 
     if (debugConfig.enabled) {
       const errorLogsDir = path.join(__dirname, mpConfig.automation.logs.dir)
