@@ -95,7 +95,7 @@ module.exports = {
 
   // ==================== Debug 上传配置 ====================
   debugUpload: {
-    enabled: true, // 是否启用自动上传功能
+    enabled: false, // 是否启用自动上传功能
     host: '43.106.0.58', // 远程服务器 IP 地址或域名
     port: 22, // SSH 端口号
     user: 'xiaowanyun', // SSH 登录用户名
