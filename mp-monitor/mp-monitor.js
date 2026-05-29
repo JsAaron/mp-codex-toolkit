@@ -39,6 +39,7 @@ let pageReloadCount = 0
 let lastPagePath = null
 let currentPageLogs = [] // 当前页面周期的普通日志
 let currentPageStartTime = null // 当前页面周期开始时间
+const monitorStartedAt = Date.now()
 
 // 获取当前日期字符串 YYYY-MM-DD
 function getDateString() {
@@ -56,6 +57,187 @@ function getTimeString() {
   const minutes = String(now.getMinutes()).padStart(2, '0')
   const seconds = String(now.getSeconds()).padStart(2, '0')
   return `${hours}-${minutes}-${seconds}`
+}
+
+function normalizePageUrl(pagePath) {
+  return pagePath.startsWith('/') ? pagePath : `/${pagePath}`
+}
+
+function safeFileName(value) {
+  return value.replace(/[\/\\:*?"<>|]/g, '-')
+}
+
+function stripMustache(value = '') {
+  return value.replace(/\{\{.*?\}\}/g, '').trim()
+}
+
+function resolveMiniappFile(relativePath) {
+  return path.join(mpConfig.startup.path, relativePath)
+}
+
+function normalizeComponentPath(componentPath, ownerDir) {
+  let normalized = componentPath
+  if (normalized.startsWith('/')) {
+    normalized = normalized.slice(1)
+  } else if (normalized.startsWith('.')) {
+    normalized = path.relative(mpConfig.startup.path, path.resolve(ownerDir, normalized)).replace(/\\/g, '/')
+  }
+  return normalized.replace(/\.(wxml|json|js|wxss)$/i, '')
+}
+
+function parseAttrs(attrSource) {
+  const attrs = {}
+  const attrReg = /([\w:-]+)\s*=\s*"([^"]*)"/g
+  let match
+  while ((match = attrReg.exec(attrSource))) {
+    attrs[match[1]] = match[2]
+  }
+  return attrs
+}
+
+function buildSelector(tagName, attrs) {
+  const id = stripMustache(attrs.id)
+  if (id) return `#${id}`
+
+  const testId = stripMustache(attrs['data-testid'] || attrs['data-test-id'] || attrs['data-qa'])
+  if (testId) return `[data-testid="${testId}"],[data-test-id="${testId}"],[data-qa="${testId}"]`
+
+  const className = stripMustache(attrs.class)
+    .split(/\s+/)
+    .find(Boolean)
+  if (className) return `.${className}`
+
+  return tagName
+}
+
+function hasBlacklistedText(control, blacklist) {
+  const haystack = [control.text, control.handler, control.selector, control.source, control.dataUrl].filter(Boolean).join(' ')
+  return blacklist.some(keyword => haystack.includes(keyword))
+}
+
+function hasBlacklistedHandler(control, blacklist) {
+  return blacklist.some(handler => control.handler === handler || control.handler.includes(handler))
+}
+
+async function readJsonIfExists(filePath) {
+  if (!(await fs.pathExists(filePath))) return null
+  try {
+    return await fs.readJson(filePath)
+  } catch (e) {
+    console.warn(`⚠️ 读取 JSON 失败: ${filePath} - ${e.message}`)
+    return null
+  }
+}
+
+async function readAppJson() {
+  return readJsonIfExists(resolveMiniappFile('app.json'))
+}
+
+function collectTabPagesFromAppJson(appJson) {
+  return new Set(
+    (appJson?.tabBar?.list || [])
+      .map(item => item.pagePath)
+      .filter(Boolean)
+      .map(pagePath => pagePath.replace(/^\/+/, ''))
+  )
+}
+
+function collectPagesFromAppJson(appJson) {
+  const mainPages = Array.isArray(appJson?.pages) ? appJson.pages : []
+  const packages = appJson?.subpackages || appJson?.subPackages || []
+  const packagePages = []
+
+  for (const pkg of packages) {
+    const root = (pkg.root || '').replace(/^\/+|\/+$/g, '')
+    const pages = Array.isArray(pkg.pages) ? pkg.pages : []
+    for (const page of pages) {
+      packagePages.push(`${root}/${page}`.replace(/^\/+/, ''))
+    }
+  }
+
+  return [...mainPages, ...packagePages].map(page => page.replace(/^\/+/, ''))
+}
+
+function resolveSmokeTestPages(smokeConfig, appJson) {
+  const manualPages = smokeConfig.pages || []
+  const appJsonPages = smokeConfig.includeAppJsonPages ? collectPagesFromAppJson(appJson) : []
+  const includeMainPages = new Set((smokeConfig.includeAppJsonMainPages || []).map(page => page.replace(/^\/+/, '')))
+  const includeRoots = new Set((smokeConfig.includeAppJsonPageRoots || []).map(root => root.replace(/^\/+|\/+$/g, '')))
+  const excludePages = new Set((smokeConfig.excludePages || []).map(page => page.replace(/^\/+/, '')))
+  const filteredAppJsonPages = includeMainPages.size || includeRoots.size
+    ? appJsonPages.filter(page => includeMainPages.has(page) || includeRoots.has(page.split('/')[0]))
+    : appJsonPages
+
+  return [...new Set([...manualPages, ...filteredAppJsonPages])]
+    .map(page => page.replace(/^\/+/, ''))
+    .filter(page => !excludePages.has(page))
+}
+
+async function openSmokeTestPage(pagePath, tabPages, smokeConfig) {
+  const url = normalizePageUrl(pagePath)
+  const method = smokeConfig.pageEntryMethod || 'auto'
+
+  if (method === 'switchTab' || (method === 'auto' && tabPages.has(pagePath))) {
+    await miniProgram.switchTab(url)
+  } else if (method === 'navigateTo') {
+    await miniProgram.navigateTo(url)
+  } else {
+    await miniProgram.reLaunch(url)
+  }
+
+  await new Promise(resolve => setTimeout(resolve, mpConfig.automation.pageWatch.refreshDelay))
+}
+
+async function collectTapControlsFromWxml(pagePath, options = {}) {
+  const maxDepth = options.maxDepth || 0
+  const visited = new Set()
+  const controls = []
+
+  async function visit(basePath, depth, ownerPage) {
+    if (visited.has(basePath) || depth > maxDepth) return
+    visited.add(basePath)
+
+    const wxmlPath = resolveMiniappFile(`${basePath}.wxml`)
+    if (!(await fs.pathExists(wxmlPath))) return
+
+    const wxml = await fs.readFile(wxmlPath, 'utf-8')
+    const tagReg = /<([a-zA-Z][\w-]*)([^<>]*?(?:bind:?tap|catch:?tap)[^<>]*?)>/g
+    let match
+    while ((match = tagReg.exec(wxml))) {
+      const [, tagName, attrSource] = match
+      const attrs = parseAttrs(attrSource)
+      const eventName = attrs.bindtap
+        ? 'bindtap'
+        : attrs['bind:tap']
+          ? 'bind:tap'
+          : attrs.catchtap
+            ? 'catchtap'
+            : 'catch:tap'
+      const handler = attrs[eventName] || ''
+      controls.push({
+        page: ownerPage,
+        source: `${basePath}.wxml`,
+        tagName,
+        selector: buildSelector(tagName, attrs),
+        event: eventName,
+        handler,
+        dataUrl: attrs['data-url'] || attrs.url || '',
+        text: stripMustache((wxml.slice(match.index, tagReg.lastIndex + 120).match(/>([^<{}]+)</) || [])[1] || ''),
+        fromComponent: basePath !== ownerPage
+      })
+    }
+
+    const json = await readJsonIfExists(resolveMiniappFile(`${basePath}.json`))
+    const usingComponents = json?.usingComponents || {}
+    const ownerDir = path.dirname(resolveMiniappFile(basePath))
+    for (const componentPath of Object.values(usingComponents)) {
+      const normalized = normalizeComponentPath(componentPath, ownerDir)
+      await visit(normalized, depth + 1, ownerPage)
+    }
+  }
+
+  await visit(pagePath, 0, pagePath)
+  return controls
 }
 
 // 解析堆栈信息
@@ -238,6 +420,259 @@ async function savePageLogs(reason = 'page-change') {
     console.error(`❌ 保存页面日志失败: ${e.message}`)
     return null
   }
+}
+
+async function scanButtons(page) {
+  const buttons = await page.$$('button')
+  const result = []
+
+  for (let i = 0; i < buttons.length; i++) {
+    const button = buttons[i]
+    const info = {
+      index: i,
+      tagName: button.tagName,
+      id: '',
+      className: '',
+      text: '',
+      size: null,
+      offset: null
+    }
+
+    try {
+      info.id = await button.attribute('id')
+    } catch (e) {}
+    try {
+      info.className = await button.attribute('class')
+    } catch (e) {}
+    try {
+      info.text = await button.text()
+    } catch (e) {}
+    try {
+      info.size = await button.size()
+    } catch (e) {}
+    try {
+      info.offset = await button.offset()
+    } catch (e) {}
+
+    result.push(info)
+  }
+
+  return result
+}
+
+async function findTapElement(page, control) {
+  try {
+    const element = await page.$(control.selector)
+    if (element) return element
+  } catch (e) {}
+
+  const candidates = await page.$$(control.tagName || 'button,view,text,image')
+  for (const candidate of candidates) {
+    try {
+      const text = await candidate.text()
+      if (control.text && text && text.includes(control.text)) return candidate
+    } catch (e) {}
+
+    try {
+      const className = await candidate.attribute('class')
+      if (control.selector?.startsWith('.') && className?.split(/\s+/).includes(control.selector.slice(1))) return candidate
+    } catch (e) {}
+  }
+
+  return null
+}
+
+async function tapEventControls(pagePath, controls, smokeConfig, tabPages) {
+  if (!smokeConfig.tapEventControls) return []
+
+  const blacklist = smokeConfig.tapBlacklist || []
+  const handlerBlacklist = smokeConfig.tapHandlerBlacklist || []
+  const maxTap = smokeConfig.maxTapPerPage || controls.length
+  const tapResults = []
+  let tapped = 0
+
+  for (const control of controls) {
+    if (tapped >= maxTap) break
+
+    const tapResult = {
+      ...control,
+      status: 'pending',
+      time: new Date().toISOString()
+    }
+
+    if (hasBlacklistedText(control, blacklist)) {
+      tapResult.status = 'skipped'
+      tapResult.reason = 'blacklist'
+      tapResults.push(tapResult)
+      continue
+    }
+
+    if (hasBlacklistedHandler(control, handlerBlacklist)) {
+      tapResult.status = 'skipped'
+      tapResult.reason = 'handler-blacklist'
+      tapResults.push(tapResult)
+      continue
+    }
+
+    try {
+      const page = await miniProgram.currentPage()
+      const element = await findTapElement(page, control)
+      if (!element) {
+        tapResult.status = 'skipped'
+        tapResult.reason = 'element-not-found'
+        tapResults.push(tapResult)
+        continue
+      }
+
+      console.log(`👆 点击控件: ${control.selector} -> ${control.handler}`)
+      await element.tap()
+      tapped++
+      await new Promise(resolve => setTimeout(resolve, smokeConfig.tapDelay || 1000))
+
+      const currentPage = await miniProgram.currentPage()
+      tapResult.status = 'tapped'
+      tapResult.afterPath = currentPage.path
+
+      if (currentPage.path !== pagePath) {
+        await openSmokeTestPage(pagePath, tabPages, smokeConfig)
+      }
+    } catch (e) {
+      tapResult.status = 'failed'
+      tapResult.error = e.message
+      try {
+        await openSmokeTestPage(pagePath, tabPages, smokeConfig)
+      } catch (restoreError) {
+        tapResult.restoreError = restoreError.message
+      }
+    }
+
+    tapResults.push(tapResult)
+  }
+
+  return tapResults
+}
+
+async function runTabSmokeTest() {
+  const smokeConfig = mpConfig.automation.tabSmokeTest
+  if (!smokeConfig || !smokeConfig.enabled) return
+
+  const appJson = await readAppJson()
+  const tabPages = collectTabPagesFromAppJson(appJson)
+  const pages = resolveSmokeTestPages(smokeConfig, appJson)
+  if (pages.length === 0) return
+
+  const outputDir = path.join(__dirname, mpConfig.automation.logs.dir, smokeConfig.outputDir || 'page-smoke-test')
+  if (smokeConfig.clearOutputBeforeRun) {
+    await fs.emptyDir(outputDir)
+  } else {
+    await fs.ensureDir(outputDir)
+  }
+
+  const results = []
+  console.log(`\n🧪 开始页面自动化巡检，共 ${pages.length} 个页面`)
+
+  for (const pagePath of pages) {
+    try {
+      console.log(`➡️  打开页面: ${pagePath}`)
+      await openSmokeTestPage(pagePath, tabPages, smokeConfig)
+
+      const page = await miniProgram.currentPage()
+      const currentPath = page.path
+      const pageResult = {
+        targetPath: pagePath,
+        currentPath,
+        time: new Date().toISOString(),
+        buttons: [],
+        eventControls: [],
+        tapResults: []
+      }
+
+      if (smokeConfig.scanButtons) {
+        pageResult.buttons = await scanButtons(page)
+        console.log(`🔎 ${currentPath} 发现 button: ${pageResult.buttons.length} 个`)
+      }
+
+      if (smokeConfig.scanEventControls) {
+        pageResult.eventControls = await collectTapControlsFromWxml(pagePath, {
+          maxDepth: smokeConfig.componentScanDepth
+        })
+        console.log(`🧭 ${currentPath} 发现 tap 事件控件: ${pageResult.eventControls.length} 个`)
+        pageResult.tapResults = await tapEventControls(pagePath, pageResult.eventControls, smokeConfig, tabPages)
+      }
+
+      const filePrefix = safeFileName(currentPath || pagePath)
+      if (smokeConfig.screenshot) {
+        const screenshot = await miniProgram.screenshot()
+        const screenshotPath = path.join(outputDir, `${filePrefix}.png`)
+        await fs.writeFile(screenshotPath, Buffer.from(screenshot, 'base64'))
+        pageResult.screenshot = screenshotPath
+      }
+
+      const buttonsPath = path.join(outputDir, `${filePrefix}.buttons.json`)
+      await fs.writeFile(buttonsPath, JSON.stringify(pageResult.buttons, null, 2), 'utf-8')
+      pageResult.buttonsFile = buttonsPath
+
+      const controlsPath = path.join(outputDir, `${filePrefix}.event-controls.json`)
+      await fs.writeFile(controlsPath, JSON.stringify(pageResult.eventControls, null, 2), 'utf-8')
+      pageResult.eventControlsFile = controlsPath
+
+      const tapResultsPath = path.join(outputDir, `${filePrefix}.tap-results.json`)
+      await fs.writeFile(tapResultsPath, JSON.stringify(pageResult.tapResults, null, 2), 'utf-8')
+      pageResult.tapResultsFile = tapResultsPath
+      results.push(pageResult)
+    } catch (e) {
+      console.warn(`⚠️ 页面巡检失败: ${pagePath} - ${e.message}`)
+      results.push({
+        targetPath: pagePath,
+        time: new Date().toISOString(),
+        error: e.message
+      })
+    }
+  }
+
+  const summaryPath = path.join(outputDir, `summary-${getDateString()}-${getTimeString()}.json`)
+  await fs.writeFile(summaryPath, JSON.stringify(results, null, 2), 'utf-8')
+  console.log(`✅ 页面自动化巡检完成: ${summaryPath}\n`)
+}
+
+async function printAutoFixSuggestion() {
+  const autoFixConfig = mpConfig.automation.autoFix || {}
+  if (!autoFixConfig.suggestAfterTest) return
+
+  const taskDir = path.join(__dirname, mpConfig.automation.logs.dir, 'fix-tasks')
+  const latestTaskPath = path.join(taskDir, 'latest.json')
+  const latestRequestPath = path.join(taskDir, 'latest-fix-request.md')
+
+  if (!(await fs.pathExists(latestTaskPath)) || !(await fs.pathExists(latestRequestPath))) {
+    console.log('🧩 本轮测试未发现可交给 Codex 的修复任务\n')
+    return
+  }
+
+  let task
+  try {
+    task = await fs.readJson(latestTaskPath)
+  } catch (e) {
+    console.warn(`⚠️ 读取 Codex 修复任务失败: ${e.message}`)
+    return
+  }
+
+  const taskTime = new Date(task.createdAt || 0).getTime()
+  if (!taskTime || taskTime < monitorStartedAt) {
+    console.log('🧩 未发现本轮新生成的 Codex 修复任务\n')
+    return
+  }
+
+  const projectPath = task.projectPath || mpConfig.startup.path
+  console.log('🧩 检测到本轮新生成的 Codex 修复任务')
+  console.log(`任务 ID: ${task.id}`)
+  console.log(`错误类型: ${task.error?.type || 'unknown'}`)
+  console.log(`错误页面: ${task.error?.page || 'unknown'}`)
+  console.log(`修复请求: ${latestRequestPath}`)
+  console.log('')
+  console.log('可手动执行以下命令启动 Codex 修复：')
+  console.log(`$request = Get-Content -Raw -LiteralPath "${latestRequestPath}"`)
+  console.log(`codex exec --cd "${projectPath}" $request`)
+  console.log('')
 }
 
 // 核心：绑定所有事件监听（只在启动时调用一次）
@@ -465,6 +900,9 @@ async function main() {
     } catch (e) {
       console.warn(`⚠️ 刷新页面失败: ${e.message}`)
     }
+
+    await runTabSmokeTest()
+    await printAutoFixSuggestion()
 
     // 轮询检测页面变化（热更新）
     setInterval(watchPageChange, mpConfig.automation.pageWatch.interval)

@@ -32,6 +32,31 @@ module.exports = {
       path: '/你的项目路径/gaofenwx',
       cliPath: '/Applications/wechatwebdevtools.app/Contents/MacOS/cli',
       port: 10984
+    },
+    automation: {
+      tabSmokeTest: {
+        enabled: true,
+        pages: [],
+        includeAppJsonPages: true,
+        includeAppJsonMainPages: ['pages/home/home', 'pages/profile/profile', 'pages/about/about'],
+        includeAppJsonPageRoots: ['packageMemoryCard', 'packageSpecialTrain'],
+        excludePages: [],
+        pageEntryMethod: 'auto',
+        scanButtons: true,
+        scanEventControls: true,
+        tapEventControls: true,
+        maxTapPerPage: 20,
+        componentScanDepth: 2,
+        tapDelay: 1000,
+        tapHandlerBlacklist: ['navigateTo', 'redirectTo', 'reLaunch', 'switchTab', 'navigateBack'],
+        tapBlacklist: ['支付', '删除', '注销', '退出', '登录', '授权', '提交订单'],
+        screenshot: true,
+        outputDir: 'page-smoke-test',
+        clearOutputBeforeRun: true
+      },
+      autoFix: {
+        suggestAfterTest: true
+      }
     }
   },
 
