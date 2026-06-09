@@ -141,6 +141,30 @@ module.exports = {
               { action: 'expectText', text: '解题思路' },
               { action: 'screenshot', name: 'photo-solve-mock-result' }
             ]
+          },
+          {
+            name: '拍照解题-真实接口提交后展示结果',
+            enabled: false,
+            description: '发布前冒烟测试用。将 images 改成 wx.chooseMedia 产生的真实 tempFilePath 后再启用。',
+            steps: [
+              { action: 'open', page: 'packagePhotoSolve/pages/pluginbase/pluginbase', method: 'reLaunch', waitAfter: 5000 },
+              {
+                action: 'callPageMethod',
+                method: 'onPhotoSubmit',
+                args: [
+                  {
+                    detail: {
+                      images: ['请替换为真实题图 tempFilePath'],
+                      questionNumber: '1'
+                    }
+                  }
+                ],
+                waitAfter: 60000
+              },
+              { action: 'expectText', text: '答案' },
+              { action: 'expectText', text: '解题思路' },
+              { action: 'screenshot', name: 'photo-solve-real-result' }
+            ]
           }
         ]
       },
