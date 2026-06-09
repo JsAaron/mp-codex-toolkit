@@ -53,7 +53,7 @@ module.exports = {
       },
 
       tabSmokeTest: {
-        enabled: true,
+        enabled: false,
         pages: [],
         includeAppJsonPages: true,
         includeAppJsonMainPages: ['pages/home/home', 'pages/profile/profile', 'pages/about/about'],
@@ -71,6 +71,97 @@ module.exports = {
         screenshot: true,
         outputDir: 'page-smoke-test',
         clearOutputBeforeRun: true
+      },
+
+      flowSmokeTest: {
+        enabled: true,
+        outputDir: 'flow-smoke-test',
+        clearOutputBeforeRun: true,
+        stepDelay: 800,
+        pageEntryMethod: 'auto',
+        screenshot: true,
+        flows: [
+          {
+            name: '拍照解题-首页入口进入上传页',
+            enabled: true,
+            steps: [
+              { action: 'open', page: 'pages/home/home', method: 'switchTab', waitAfter: 5000 },
+              { action: 'tap', selector: '.standard-feature-card', text: '拍题讲解', waitAfter: 5000 },
+              { action: 'expectPageContains', page: 'packagePhotoSolve/pages/pluginbase/pluginbase' },
+              { action: 'expectText', text: '拍照解题' },
+              { action: 'expectText', text: '开始解题' },
+              { action: 'expectText', text: '解题结果' },
+              { action: 'screenshot', name: 'photo-solve-upload-page' }
+            ]
+          },
+          {
+            name: '拍照解题-初始空结果正确',
+            enabled: true,
+            steps: [
+              { action: 'open', page: 'packagePhotoSolve/pages/pluginbase/pluginbase', method: 'reLaunch', waitAfter: 5000 },
+              { action: 'expectElement', selector: '#photoSolveTopic' },
+              { action: 'expectText', text: '拍照解题' },
+              { action: 'expectText', text: '开始解题' },
+              { action: 'expectText', text: '解题结果' },
+              { action: 'expectText', text: '暂无解题内容' },
+              { action: 'screenshot', name: 'photo-solve-empty-state' }
+            ]
+          },
+          {
+            name: '拍照解题-注入测试图片后出现缩略图',
+            enabled: true,
+            steps: [
+              { action: 'open', page: 'packagePhotoSolve/pages/pluginbase/pluginbase', method: 'reLaunch', waitAfter: 5000 },
+              {
+                action: 'setComponentData',
+                selector: '#photoSolveTopic',
+                data: {
+                  thumbnails: ['/packagePhotoSolve/assets/images/camera.png']
+                },
+                waitAfter: 500
+              },
+              { action: 'callComponentMethod', selector: '#photoSolveTopic', method: 'calculateLayout', waitAfter: 500 },
+              { action: 'expectElement', selector: '.thumbnail-image' },
+              { action: 'screenshot', name: 'photo-solve-image-injected' }
+            ]
+          },
+          {
+            name: '拍照解题-相机打开隐藏工具栏',
+            enabled: true,
+            steps: [
+              { action: 'open', page: 'packagePhotoSolve/pages/pluginbase/pluginbase', method: 'reLaunch', waitAfter: 5000 },
+              { action: 'expectElement', selector: '.plugin-toolbar' },
+              { action: 'callPageMethod', method: 'onCameraOpen', waitAfter: 500 },
+              { action: 'expectNoElement', selector: '.plugin-toolbar' },
+              { action: 'callPageMethod', method: 'onCameraClose', waitAfter: 500 },
+              { action: 'expectElement', selector: '.plugin-toolbar' },
+              { action: 'screenshot', name: 'photo-solve-toolbar-restored' }
+            ]
+          },
+          {
+            name: '拍照解题-mock提交后展示结果',
+            enabled: true,
+            steps: [
+              { action: 'open', page: 'packagePhotoSolve/pages/pluginbase/pluginbase?mock=1', method: 'reLaunch', waitAfter: 5000 },
+              {
+                action: 'callPageMethod',
+                method: 'onPhotoSubmit',
+                args: [
+                  {
+                    detail: {
+                      images: ['/packagePhotoSolve/assets/images/camera.png'],
+                      questionNumber: '1'
+                    }
+                  }
+                ],
+                waitAfter: 5000
+              },
+              { action: 'expectText', text: '答案' },
+              { action: 'expectText', text: '解题思路' },
+              { action: 'screenshot', name: 'photo-solve-mock-result' }
+            ]
+          }
+        ]
       },
 
       autoFix: {

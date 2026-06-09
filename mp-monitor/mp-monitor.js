@@ -185,7 +185,7 @@ async function openSmokeTestPage(pagePath, tabPages, smokeConfig) {
     await miniProgram.reLaunch(url)
   }
 
-  await new Promise(resolve => setTimeout(resolve, mpConfig.automation.pageWatch.refreshDelay))
+  await new Promise(resolve => setTimeout(resolve, smokeConfig.waitAfter || mpConfig.automation.pageWatch.refreshDelay))
 }
 
 async function collectTapControlsFromWxml(pagePath, options = {}) {
@@ -480,6 +480,279 @@ async function findTapElement(page, control) {
   }
 
   return null
+}
+
+async function findElementByText(page, text, selector = 'button,view,text') {
+  const candidates = await page.$$(selector)
+  for (const candidate of candidates) {
+    try {
+      const candidateText = await candidate.text()
+      if (candidateText && candidateText.includes(text)) return candidate
+    } catch (e) {}
+  }
+
+  return null
+}
+
+async function findElementBySelectorAndText(page, selector, text) {
+  const candidates = await page.$$(selector)
+  for (const candidate of candidates) {
+    if (!text) return candidate
+
+    try {
+      const candidateText = await candidate.text()
+      if (candidateText && candidateText.includes(text)) return candidate
+    } catch (e) {}
+  }
+
+  return null
+}
+
+async function getPageText(page) {
+  const texts = []
+  const candidates = await page.$$('button,view,text')
+  for (const candidate of candidates) {
+    try {
+      const text = await candidate.text()
+      if (text) texts.push(text)
+    } catch (e) {}
+  }
+
+  return texts.join('\n')
+}
+
+async function findElement(page, selector) {
+  if (!selector) throw new Error('缺少 selector')
+  return page.$(selector)
+}
+
+async function waitAfterStep(step, fallbackDelay = 0) {
+  const delay = step.waitAfter || fallbackDelay
+  if (delay) {
+    await new Promise(resolve => setTimeout(resolve, delay))
+  }
+}
+
+async function saveFlowScreenshot(outputDir, flowName, stepName) {
+  const screenshot = await miniProgram.screenshot()
+  const fileName = `${safeFileName(flowName)}_${safeFileName(stepName)}.png`
+  const screenshotPath = path.join(outputDir, fileName)
+  await fs.writeFile(screenshotPath, Buffer.from(screenshot, 'base64'))
+  return screenshotPath
+}
+
+async function runFlowStep(step, context) {
+  const { flowConfig, outputDir, tabPages } = context
+  const action = step.action
+
+  if (action === 'open') {
+    await openSmokeTestPage(step.page, tabPages, {
+      pageEntryMethod: step.method || flowConfig.pageEntryMethod || 'auto',
+      waitAfter: step.waitAfter
+    })
+    const page = await miniProgram.currentPage()
+    return { currentPath: page.path }
+  }
+
+  if (action === 'tap') {
+    const page = await miniProgram.currentPage()
+    let element = null
+
+    if (step.selector) {
+      element = await findElementBySelectorAndText(page, step.selector, step.text)
+    }
+    if (!element && step.text) {
+      element = await findElementByText(page, step.text, step.scope || 'button,view,text')
+    }
+    if (!element) {
+      throw new Error(`未找到可点击元素: ${step.selector || step.text || '(未配置 selector/text)'}`)
+    }
+
+    await element.tap()
+    await new Promise(resolve => setTimeout(resolve, step.waitAfter || flowConfig.stepDelay || 800))
+    const currentPage = await miniProgram.currentPage()
+    return { currentPath: currentPage.path }
+  }
+
+  if (action === 'wait') {
+    await new Promise(resolve => setTimeout(resolve, step.ms || flowConfig.stepDelay || 800))
+    return { waited: step.ms || flowConfig.stepDelay || 800 }
+  }
+
+  if (action === 'expectPageContains') {
+    const page = await miniProgram.currentPage()
+    const expected = step.page || step.text
+    if (!expected) throw new Error('expectPageContains 缺少 page/text')
+    if (!page.path.includes(expected)) {
+      throw new Error(`页面路径断言失败: 当前 ${page.path}, 期望包含 ${expected}`)
+    }
+    return { currentPath: page.path, expected }
+  }
+
+  if (action === 'expectText') {
+    const page = await miniProgram.currentPage()
+    const actualText = await getPageText(page)
+    if (!step.text) throw new Error('expectText 缺少 text')
+    if (!actualText.includes(step.text)) {
+      throw new Error(`文本断言失败: 当前页面未包含 "${step.text}"`)
+    }
+    return { expected: step.text }
+  }
+
+  if (action === 'expectElement') {
+    const page = await miniProgram.currentPage()
+    const element = await findElement(page, step.selector)
+    if (!element) {
+      throw new Error(`元素断言失败: 未找到 ${step.selector}`)
+    }
+    return { selector: step.selector }
+  }
+
+  if (action === 'expectNoElement') {
+    const page = await miniProgram.currentPage()
+    const element = await findElement(page, step.selector)
+    if (element) {
+      throw new Error(`元素断言失败: 仍然找到 ${step.selector}`)
+    }
+    return { selector: step.selector }
+  }
+
+  if (action === 'callPageMethod') {
+    const page = await miniProgram.currentPage()
+    if (!step.method) throw new Error('callPageMethod 缺少 method')
+    const result = await page.callMethod(step.method, ...(step.args || []))
+    await waitAfterStep(step)
+    return { method: step.method, result }
+  }
+
+  if (action === 'setPageData') {
+    const page = await miniProgram.currentPage()
+    await page.setData(step.data || {})
+    await waitAfterStep(step)
+    return { dataKeys: Object.keys(step.data || {}) }
+  }
+
+  if (action === 'callComponentMethod') {
+    const page = await miniProgram.currentPage()
+    const component = await findElement(page, step.selector)
+    if (!component) throw new Error(`未找到组件: ${step.selector}`)
+    if (typeof component.callMethod !== 'function') {
+      throw new Error(`元素不支持 callMethod: ${step.selector}`)
+    }
+    if (!step.method) throw new Error('callComponentMethod 缺少 method')
+    const result = await component.callMethod(step.method, ...(step.args || []))
+    await waitAfterStep(step)
+    return { selector: step.selector, method: step.method, result }
+  }
+
+  if (action === 'setComponentData') {
+    const page = await miniProgram.currentPage()
+    const component = await findElement(page, step.selector)
+    if (!component) throw new Error(`未找到组件: ${step.selector}`)
+    if (typeof component.setData !== 'function') {
+      throw new Error(`元素不支持 setData: ${step.selector}`)
+    }
+    await component.setData(step.data || {})
+    await waitAfterStep(step)
+    return { selector: step.selector, dataKeys: Object.keys(step.data || {}) }
+  }
+
+  if (action === 'screenshot') {
+    const screenshotPath = await saveFlowScreenshot(outputDir, context.flow.name, step.name || action)
+    return { screenshot: screenshotPath }
+  }
+
+  throw new Error(`暂不支持的流程动作: ${action}`)
+}
+
+async function runFlowSmokeTest() {
+  const flowConfig = mpConfig.automation.flowSmokeTest
+  if (!flowConfig || !flowConfig.enabled) return
+
+  const flows = (flowConfig.flows || []).filter(flow => flow.enabled !== false)
+  if (flows.length === 0) return
+
+  const appJson = await readAppJson()
+  const tabPages = collectTabPagesFromAppJson(appJson)
+  const outputDir = path.join(__dirname, mpConfig.automation.logs.dir, flowConfig.outputDir || 'flow-smoke-test')
+  if (flowConfig.clearOutputBeforeRun) {
+    await fs.emptyDir(outputDir)
+  } else {
+    await fs.ensureDir(outputDir)
+  }
+
+  const summary = []
+  console.log(`\n🧭 开始业务流程巡检，共 ${flows.length} 条流程`)
+
+  for (const flow of flows) {
+    const flowResult = {
+      name: flow.name,
+      status: 'passed',
+      startedAt: new Date().toISOString(),
+      steps: []
+    }
+
+    console.log(`➡️  执行流程: ${flow.name}`)
+    const steps = flow.steps || []
+
+    for (let i = 0; i < steps.length; i++) {
+      const step = steps[i]
+      const stepLabel = step.name || `${i + 1}-${step.action}`
+      const started = Date.now()
+      const stepResult = {
+        index: i + 1,
+        name: stepLabel,
+        action: step.action,
+        status: 'passed',
+        startedAt: new Date(started).toISOString()
+      }
+
+      try {
+        const detail = await runFlowStep(step, {
+          flow,
+          flowConfig,
+          outputDir,
+          tabPages
+        })
+        Object.assign(stepResult, detail)
+        console.log(`   ✅ ${stepLabel}`)
+      } catch (e) {
+        stepResult.status = 'failed'
+        stepResult.error = e.message
+        flowResult.status = 'failed'
+        console.warn(`   ❌ ${stepLabel}: ${e.message}`)
+
+        if (flowConfig.screenshot) {
+          try {
+            stepResult.screenshot = await saveFlowScreenshot(outputDir, flow.name, `${stepLabel}-failed`)
+          } catch (screenshotError) {
+            stepResult.screenshotError = screenshotError.message
+          }
+        }
+      } finally {
+        stepResult.durationMs = Date.now() - started
+        stepResult.finishedAt = new Date().toISOString()
+        flowResult.steps.push(stepResult)
+      }
+
+      if (stepResult.status === 'failed') break
+      if (flowConfig.stepDelay && step.action !== 'tap' && step.action !== 'wait') {
+        await new Promise(resolve => setTimeout(resolve, flowConfig.stepDelay))
+      }
+    }
+
+    flowResult.finishedAt = new Date().toISOString()
+    flowResult.durationMs = new Date(flowResult.finishedAt).getTime() - new Date(flowResult.startedAt).getTime()
+    const resultPath = path.join(outputDir, `${safeFileName(flow.name)}.json`)
+    await fs.writeFile(resultPath, JSON.stringify(flowResult, null, 2), 'utf-8')
+    flowResult.resultFile = resultPath
+    summary.push(flowResult)
+  }
+
+  const summaryPath = path.join(outputDir, `summary-${getDateString()}-${getTimeString()}.json`)
+  await fs.writeFile(summaryPath, JSON.stringify(summary, null, 2), 'utf-8')
+  const failedCount = summary.filter(flow => flow.status === 'failed').length
+  console.log(`✅ 业务流程巡检完成: ${summaryPath}，失败 ${failedCount}/${summary.length}\n`)
 }
 
 async function tapEventControls(pagePath, controls, smokeConfig, tabPages) {
@@ -885,23 +1158,23 @@ async function main() {
   try {
     // 立即绑定监听器（在页面加载前）
     bindAllListeners()
-    // 主动刷新页面，触发错误重现（用于测试）
+    const shouldRefreshCurrentPage = !!mpConfig.automation.tabSmokeTest?.enabled
     try {
       const page = await miniProgram.currentPage()
       const pagePath = page.path
       console.log(`📄 当前页面: ${pagePath}`)
 
-      // 重新加载页面(路径需要以 / 开头)
-      const url = pagePath.startsWith('/') ? pagePath : `/${pagePath}`
-      await miniProgram.reLaunch(url)
-
-      // 等待页面加载完成
-      await new Promise(resolve => setTimeout(resolve, mpConfig.automation.pageWatch.refreshDelay))
+      if (shouldRefreshCurrentPage) {
+        const url = pagePath.startsWith('/') ? pagePath : `/${pagePath}`
+        await miniProgram.reLaunch(url)
+        await new Promise(resolve => setTimeout(resolve, mpConfig.automation.pageWatch.refreshDelay))
+      }
     } catch (e) {
-      console.warn(`⚠️ 刷新页面失败: ${e.message}`)
+      console.warn(`⚠️ 获取或刷新当前页面失败: ${e.message}`)
     }
 
     await runTabSmokeTest()
+    await runFlowSmokeTest()
     await printAutoFixSuggestion()
 
     // 轮询检测页面变化（热更新）
