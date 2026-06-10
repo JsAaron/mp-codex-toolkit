@@ -6,9 +6,47 @@ const path = require('path')
 const net = require('net')
 const { uploadErrorLogs } = require('./upload-to-server')
 const { writeFixTask } = require('../auto-fix/task-writer')
+const { createFlowRunner } = require('./flow-runner')
 
 const mpConfig = sharedConfig.mpMonitor
 const debugConfig = sharedConfig.debugUpload
+const cliOptions = parseCliOptions(process.argv.slice(2))
+const flowRunner = createFlowRunner({
+  mpConfig,
+  cliOptions,
+  miniProgramRef: () => miniProgram,
+  readAppJson,
+  collectTabPagesFromAppJson,
+  openSmokeTestPage,
+  safeFileName,
+  getDateString,
+  getTimeString
+})
+
+function parseCliOptions(args) {
+  const options = {
+    flow: null,
+    listFlows: false
+  }
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]
+    if (arg === '--list-flows') {
+      options.listFlows = true
+      continue
+    }
+    if (arg === '--flow') {
+      options.flow = args[i + 1] || ''
+      i++
+      continue
+    }
+    if (arg.startsWith('--flow=')) {
+      options.flow = arg.slice('--flow='.length)
+    }
+  }
+
+  return options
+}
 
 // 检测端口是否可用
 function checkPortIsUsed(port) {
@@ -533,6 +571,47 @@ async function waitAfterStep(step, fallbackDelay = 0) {
   }
 }
 
+function readDataPath(data, dataPath) {
+  if (!dataPath) return data
+  return String(dataPath)
+    .split('.')
+    .filter(Boolean)
+    .reduce((current, key) => {
+      if (current == null) return undefined
+      if (Array.isArray(current) && /^\d+$/.test(key)) return current[Number(key)]
+      return current[key]
+    }, data)
+}
+
+function isEmptyValue(value) {
+  if (value == null) return true
+  if (Array.isArray(value) || typeof value === 'string') return value.length === 0
+  if (typeof value === 'object') return Object.keys(value).length === 0
+  return false
+}
+
+function getRecordIds(record) {
+  if (!record || typeof record !== 'object') return []
+  return [record.fileId, record.relatedId, record.setId, record.resourceId, record.id]
+    .filter(Boolean)
+    .map(String)
+}
+
+function isSameRecord(left, right) {
+  const leftIds = getRecordIds(left)
+  const rightIds = getRecordIds(right)
+  return leftIds.some(id => rightIds.includes(id))
+}
+
+async function getCurrentPageData(dataPath) {
+  const page = await miniProgram.currentPage()
+  if (typeof page.data !== 'function') {
+    throw new Error('当前 automator Page 不支持读取 data')
+  }
+  const data = await page.data()
+  return readDataPath(data, dataPath)
+}
+
 async function saveFlowScreenshot(outputDir, flowName, stepName) {
   const screenshot = await miniProgram.screenshot()
   const fileName = `${safeFileName(flowName)}_${safeFileName(stepName)}.png`
@@ -542,7 +621,7 @@ async function saveFlowScreenshot(outputDir, flowName, stepName) {
 }
 
 async function runFlowStep(step, context) {
-  const { flowConfig, outputDir, tabPages } = context
+  const { flowConfig, outputDir, tabPages, vars } = context
   const action = step.action
 
   if (action === 'open') {
@@ -617,12 +696,93 @@ async function runFlowStep(step, context) {
     return { selector: step.selector }
   }
 
+  if (action === 'skipIfPageDataEmpty') {
+    const value = await getCurrentPageData(step.path)
+    if (isEmptyValue(value)) {
+      return {
+        skippedFlow: true,
+        reason: step.reason || `页面数据为空: ${step.path}`,
+        path: step.path
+      }
+    }
+    return { path: step.path, empty: false }
+  }
+
+  if (action === 'savePageData') {
+    if (!step.name) throw new Error('savePageData 缺少 name')
+    const value = await getCurrentPageData(step.path)
+    vars[step.name] = value
+    return { name: step.name, path: step.path, value }
+  }
+
+  if (action === 'expectPageData') {
+    const value = await getCurrentPageData(step.path)
+    if (step.empty === true && !isEmptyValue(value)) {
+      throw new Error(`页面数据断言失败: ${step.path} 期望为空`)
+    }
+    if (step.empty === false && isEmptyValue(value)) {
+      throw new Error(`页面数据断言失败: ${step.path} 期望非空`)
+    }
+    if (Object.prototype.hasOwnProperty.call(step, 'equals') && value !== step.equals) {
+      throw new Error(`页面数据断言失败: ${step.path} 当前 ${JSON.stringify(value)}, 期望 ${JSON.stringify(step.equals)}`)
+    }
+    return { path: step.path, value }
+  }
+
+  if (action === 'expectRecordRemoved') {
+    if (!step.from) throw new Error('expectRecordRemoved 缺少 from')
+    const record = vars[step.from]
+    if (isEmptyValue(record)) throw new Error(`未找到已保存记录: ${step.from}`)
+
+    const historyRecords = await getCurrentPageData(step.historyPath || 'historyRecords')
+    const latestRecord = await getCurrentPageData(step.latestPath || 'latestCreatedRecord')
+    const records = Array.isArray(historyRecords) ? historyRecords : []
+    const stillInHistory = records.some(item => isSameRecord(item, record))
+    const stillLatest = isSameRecord(latestRecord, record)
+
+    if (stillInHistory || stillLatest) {
+      throw new Error(`记录删除断言失败: 被删记录仍存在，history=${stillInHistory}, latest=${stillLatest}`)
+    }
+
+    return {
+      removedRecordIds: getRecordIds(record),
+      remainingHistoryCount: records.length,
+      latestExists: !isEmptyValue(latestRecord)
+    }
+  }
+
   if (action === 'callPageMethod') {
     const page = await miniProgram.currentPage()
     if (!step.method) throw new Error('callPageMethod 缺少 method')
     const result = await page.callMethod(step.method, ...(step.args || []))
     await waitAfterStep(step)
     return { method: step.method, result }
+  }
+
+  if (action === 'callPageMethodWithPageData') {
+    const page = await miniProgram.currentPage()
+    if (!step.method) throw new Error('callPageMethodWithPageData 缺少 method')
+    if (!step.path) throw new Error('callPageMethodWithPageData 缺少 path')
+    const value = await getCurrentPageData(step.path)
+    if (isEmptyValue(value)) {
+      throw new Error(`页面数据为空，无法调用 ${step.method}: ${step.path}`)
+    }
+    const result = await page.callMethod(step.method, value)
+    await waitAfterStep(step)
+    return { method: step.method, path: step.path, result }
+  }
+
+  if (action === 'callPageMethodWithSavedData') {
+    const page = await miniProgram.currentPage()
+    if (!step.method) throw new Error('callPageMethodWithSavedData 缺少 method')
+    if (!step.from) throw new Error('callPageMethodWithSavedData 缺少 from')
+    const value = vars[step.from]
+    if (isEmptyValue(value)) {
+      throw new Error(`已保存数据为空，无法调用 ${step.method}: ${step.from}`)
+    }
+    const result = await page.callMethod(step.method, value)
+    await waitAfterStep(step)
+    return { method: step.method, from: step.from, result }
   }
 
   if (action === 'setPageData') {
@@ -665,11 +825,62 @@ async function runFlowStep(step, context) {
   throw new Error(`暂不支持的流程动作: ${action}`)
 }
 
+async function writeFlowFixTask(flowResult, failedStep) {
+  const autoFixConfig = mpConfig.automation.autoFix || {}
+  if (!autoFixConfig.suggestAfterTest) return null
+  if (!failedStep || failedStep.status !== 'failed') return null
+
+  const page = await miniProgram.currentPage().catch(() => null)
+  const pagePath = page?.path || 'unknown'
+  const errorDir = path.dirname(flowResult.resultFile)
+  const errorJsonPath = path.join(errorDir, `${safeFileName(flowResult.name)}.fix-error.json`)
+  const screenshotPath = failedStep.screenshot || null
+
+  const errorData = {
+    type: 'flow-smoke-test',
+    message: [
+      `页面 TDD 流程失败: ${flowResult.name}`,
+      `失败步骤: ${failedStep.name}`,
+      `失败动作: ${failedStep.action}`,
+      `错误信息: ${failedStep.error}`
+    ].join('\n'),
+    page: pagePath,
+    time: new Date().toISOString(),
+    errorDir,
+    errorJsonPath,
+    screenshotPath,
+    pageLogFile: null,
+    raw: {
+      flow: flowResult.name,
+      resultFile: flowResult.resultFile,
+      failedStep,
+      steps: flowResult.steps
+    }
+  }
+
+  await fs.writeJson(errorJsonPath, errorData, { spaces: 2 })
+  return writeFixTask(errorData)
+}
+
 async function runFlowSmokeTest() {
   const flowConfig = mpConfig.automation.flowSmokeTest
   if (!flowConfig || !flowConfig.enabled) return
 
-  const flows = (flowConfig.flows || []).filter(flow => flow.enabled !== false)
+  const allFlows = flowConfig.flows || []
+  if (cliOptions.listFlows) {
+    console.log('\n🧾 可用业务流程:')
+    allFlows.forEach(flow => {
+      const enabledText = flow.enabled === false ? 'disabled' : 'enabled'
+      console.log(`- ${flow.name} [${enabledText}]`)
+    })
+    console.log('')
+    return
+  }
+
+  const flows = cliOptions.flow
+    ? allFlows.filter(flow => flow.name.includes(cliOptions.flow))
+    : allFlows.filter(flow => flow.enabled !== false)
+
   if (flows.length === 0) return
 
   const appJson = await readAppJson()
@@ -694,6 +905,7 @@ async function runFlowSmokeTest() {
 
     console.log(`➡️  执行流程: ${flow.name}`)
     const steps = flow.steps || []
+    const vars = {}
 
     for (let i = 0; i < steps.length; i++) {
       const step = steps[i]
@@ -712,10 +924,17 @@ async function runFlowSmokeTest() {
           flow,
           flowConfig,
           outputDir,
-          tabPages
+          tabPages,
+          vars
         })
         Object.assign(stepResult, detail)
-        console.log(`   ✅ ${stepLabel}`)
+        if (detail?.skippedFlow) {
+          stepResult.status = 'skipped'
+          flowResult.status = 'skipped'
+          console.log(`   ⏭️  ${stepLabel}: ${detail.reason}`)
+        } else {
+          console.log(`   ✅ ${stepLabel}`)
+        }
       } catch (e) {
         stepResult.status = 'failed'
         stepResult.error = e.message
@@ -735,7 +954,7 @@ async function runFlowSmokeTest() {
         flowResult.steps.push(stepResult)
       }
 
-      if (stepResult.status === 'failed') break
+      if (stepResult.status === 'failed' || stepResult.status === 'skipped') break
       if (flowConfig.stepDelay && step.action !== 'tap' && step.action !== 'wait') {
         await new Promise(resolve => setTimeout(resolve, flowConfig.stepDelay))
       }
@@ -744,15 +963,31 @@ async function runFlowSmokeTest() {
     flowResult.finishedAt = new Date().toISOString()
     flowResult.durationMs = new Date(flowResult.finishedAt).getTime() - new Date(flowResult.startedAt).getTime()
     const resultPath = path.join(outputDir, `${safeFileName(flow.name)}.json`)
-    await fs.writeFile(resultPath, JSON.stringify(flowResult, null, 2), 'utf-8')
     flowResult.resultFile = resultPath
+    await fs.writeFile(resultPath, JSON.stringify(flowResult, null, 2), 'utf-8')
+
+    const failedStep = flowResult.steps.find(step => step.status === 'failed')
+    if (failedStep) {
+      try {
+        const fixTaskResult = await writeFlowFixTask(flowResult, failedStep)
+        if (fixTaskResult) {
+          flowResult.fixTask = fixTaskResult.latestRequestPath
+          await fs.writeFile(resultPath, JSON.stringify(flowResult, null, 2), 'utf-8')
+          console.log(`   🧩 已生成 Codex 修复任务: ${fixTaskResult.latestRequestPath}`)
+        }
+      } catch (taskError) {
+        console.warn(`   ⚠️ 生成流程修复任务失败: ${taskError.message}`)
+      }
+    }
+
     summary.push(flowResult)
   }
 
   const summaryPath = path.join(outputDir, `summary-${getDateString()}-${getTimeString()}.json`)
   await fs.writeFile(summaryPath, JSON.stringify(summary, null, 2), 'utf-8')
   const failedCount = summary.filter(flow => flow.status === 'failed').length
-  console.log(`✅ 业务流程巡检完成: ${summaryPath}，失败 ${failedCount}/${summary.length}\n`)
+  const skippedCount = summary.filter(flow => flow.status === 'skipped').length
+  console.log(`✅ 业务流程巡检完成: ${summaryPath}，失败 ${failedCount}/${summary.length}，跳过 ${skippedCount}/${summary.length}\n`)
 }
 
 async function tapEventControls(pagePath, controls, smokeConfig, tabPages) {
@@ -1174,7 +1409,7 @@ async function main() {
     }
 
     await runTabSmokeTest()
-    await runFlowSmokeTest()
+    await flowRunner.runFlowSmokeTest()
     await printAutoFixSuggestion()
 
     // 轮询检测页面变化（热更新）
