@@ -77,6 +77,31 @@ function createFlowActions(options) {
       }, data)
   }
 
+  function readVarPath(vars, varPath) {
+    return readDataPath(vars, varPath)
+  }
+
+  function resolveTemplateString(value, vars) {
+    return value.replace(/\{\{\s*([\w$.]+)\s*\}\}/g, (match, varPath) => {
+      const resolved = readVarPath(vars, varPath.replace(/^\$\./, ''))
+      if (resolved == null) {
+        throw new Error(`流程变量不存在: ${varPath}`)
+      }
+      return encodeURIComponent(String(resolved))
+    })
+  }
+
+  function resolveValue(value, vars) {
+    if (typeof value === 'string') return resolveTemplateString(value, vars)
+    if (Array.isArray(value)) return value.map(item => resolveValue(item, vars))
+    if (value && typeof value === 'object') {
+      return Object.fromEntries(
+        Object.entries(value).map(([key, item]) => [key, resolveValue(item, vars)])
+      )
+    }
+    return value
+  }
+
   function isEmptyValue(value) {
     if (value == null) return true
     if (Array.isArray(value) || typeof value === 'string') return value.length === 0
@@ -120,7 +145,8 @@ function createFlowActions(options) {
     const action = step.action
 
     if (action === 'open') {
-      await openSmokeTestPage(step.page, tabPages, {
+      const pagePath = resolveValue(step.page, vars)
+      await openSmokeTestPage(pagePath, tabPages, {
         pageEntryMethod: step.method || flowConfig.pageEntryMethod || 'auto',
         waitAfter: step.waitAfter
       })
@@ -155,7 +181,7 @@ function createFlowActions(options) {
 
     if (action === 'expectPageContains') {
       const page = await miniProgram.currentPage()
-      const expected = step.page || step.text
+      const expected = resolveValue(step.page || step.text, vars)
       if (!expected) throw new Error('expectPageContains 缺少 page/text')
       if (!page.path.includes(expected)) {
         throw new Error(`页面路径断言失败: 当前 ${page.path}, 期望包含 ${expected}`)
@@ -166,11 +192,12 @@ function createFlowActions(options) {
     if (action === 'expectText') {
       const page = await miniProgram.currentPage()
       const actualText = await getPageText(page)
-      if (!step.text) throw new Error('expectText 缺少 text')
-      if (!actualText.includes(step.text)) {
-        throw new Error(`文本断言失败: 当前页面未包含 "${step.text}"`)
+      const expected = resolveValue(step.text, vars)
+      if (!expected) throw new Error('expectText 缺少 text')
+      if (!actualText.includes(expected)) {
+        throw new Error(`文本断言失败: 当前页面未包含 "${expected}"`)
       }
-      return { expected: step.text }
+      return { expected }
     }
 
     if (action === 'expectElement') {
@@ -218,8 +245,11 @@ function createFlowActions(options) {
       if (step.empty === false && isEmptyValue(value)) {
         throw new Error(`页面数据断言失败: ${step.path} 期望非空`)
       }
-      if (Object.prototype.hasOwnProperty.call(step, 'equals') && value !== step.equals) {
-        throw new Error(`页面数据断言失败: ${step.path} 当前 ${JSON.stringify(value)}, 期望 ${JSON.stringify(step.equals)}`)
+      if (Object.prototype.hasOwnProperty.call(step, 'equals')) {
+        const expected = resolveValue(step.equals, vars)
+        if (value !== expected) {
+          throw new Error(`页面数据断言失败: ${step.path} 当前 ${JSON.stringify(value)}, 期望 ${JSON.stringify(expected)}`)
+        }
       }
       return { path: step.path, value }
     }
@@ -249,7 +279,7 @@ function createFlowActions(options) {
     if (action === 'callPageMethod') {
       const page = await miniProgram.currentPage()
       if (!step.method) throw new Error('callPageMethod 缺少 method')
-      const result = await page.callMethod(step.method, ...(step.args || []))
+      const result = await page.callMethod(step.method, ...(resolveValue(step.args || [], vars)))
       await waitAfterStep(step)
       return { method: step.method, result }
     }
@@ -282,9 +312,10 @@ function createFlowActions(options) {
 
     if (action === 'setPageData') {
       const page = await miniProgram.currentPage()
-      await page.setData(step.data || {})
+      const data = resolveValue(step.data || {}, vars)
+      await page.setData(data)
       await waitAfterStep(step)
-      return { dataKeys: Object.keys(step.data || {}) }
+      return { dataKeys: Object.keys(data) }
     }
 
     if (action === 'callComponentMethod') {
@@ -295,7 +326,7 @@ function createFlowActions(options) {
         throw new Error(`元素不支持 callMethod: ${step.selector}`)
       }
       if (!step.method) throw new Error('callComponentMethod 缺少 method')
-      const result = await component.callMethod(step.method, ...(step.args || []))
+      const result = await component.callMethod(step.method, ...(resolveValue(step.args || [], vars)))
       await waitAfterStep(step)
       return { selector: step.selector, method: step.method, result }
     }

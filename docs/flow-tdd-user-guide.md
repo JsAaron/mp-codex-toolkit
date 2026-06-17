@@ -77,7 +77,19 @@ node .\mp-monitor.js --list-flows
 node .\mp-monitor.js --flow "记忆卡-真实删除"
 ```
 
-`--flow` 会匹配所有 flow 名称，即使目标 flow 在配置里是 `enabled: false`，也可以临时运行。
+也可以直接运行某个 `flows/*.flows.js` 文件里的全部 flow：
+
+```powershell
+node .\mp-monitor.js --flow "..\flows\special-train-plugin.flows.js"
+```
+
+如果在仓库根目录运行，需要写主入口路径：
+
+```powershell
+node .\mp-monitor\mp-monitor.js --flow "flows\special-train-plugin.flows.js"
+```
+
+`--flow` 传普通文本时会匹配 flow 名称；传 `.js` 文件路径时会加载该文件导出的全部 flow。两种方式都会忽略 `enabled: false`，适合临时调试。
 
 ## Flow 配置示例
 
@@ -134,6 +146,16 @@ setPageData
 savePageData
 读取当前页面 data，并保存到 flow 变量。
 
+变量占位
+字符串配置支持使用 `{{变量名}}` 引用 `savePageData` 保存的数据，常用于把真实业务 id 带到后续页面。
+
+示例：
+
+```js
+{ action: 'savePageData', name: 'taskid', path: 'taskid' },
+{ action: 'open', page: 'packageSpecialTrain/pages/wait/wait?taskid={{taskid}}', method: 'reLaunch' }
+```
+
 skipIfPageDataEmpty
 如果指定页面 data 为空，则跳过整个 flow。
 
@@ -186,6 +208,21 @@ screenshot
 ```
 
 这就是 `expectRecordRemoved` 的作用。
+
+## 真实任务参数测试
+
+如果页面状态依赖 `taskid`、`recordId`、`fileId` 这类业务参数，不要在 flow 中写 `test-task`、`mock-success` 这类假 id。假参数只能验证页面能否打开，不能验证接口加载、轮询、完成态、错误态和结果页状态是否正确。
+
+推荐做法：
+
+```txt
+先通过真实入口创建或读取一条测试数据
+用 savePageData 保存页面返回的真实 id
+后续页面用 {{变量名}} 拼接真实参数
+没有可用数据时使用 skipIfPageDataEmpty 跳过
+```
+
+只有在后端专门提供稳定的测试种子任务时，才建议写固定 id；并且 flow 描述里要说明这个 id 由测试环境维护。
 
 ## 失败结果与 Codex 修复任务
 
@@ -241,6 +278,12 @@ flows: [
 ]
 ```
 
+临时调试新文件时，也可以先不改 `config.js`，直接按文件路径运行：
+
+```powershell
+node .\mp-monitor\mp-monitor.js --flow "flows\new-feature.flows.js"
+```
+
 建议每个新功能至少覆盖：
 
 ```txt
@@ -279,4 +322,3 @@ expectPhotoSolveCleared
 业务知道要测什么。
 Action 只负责怎么执行。
 ```
-

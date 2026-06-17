@@ -22,6 +22,48 @@ function createFlowRunner(options) {
     safeFileName
   })
 
+  function looksLikeFlowFile(value) {
+    return typeof value === 'string' && (
+      value.endsWith('.js') ||
+      value.includes('/') ||
+      value.includes('\\')
+    )
+  }
+
+  function resolveFlowFile(value) {
+    const candidates = [
+      path.resolve(process.cwd(), value),
+      path.resolve(__dirname, '..', value),
+      path.resolve(__dirname, '..', 'flows', value)
+    ]
+
+    return candidates.find(candidate => fs.existsSync(candidate) && fs.statSync(candidate).isFile())
+  }
+
+  function loadFlowsFromCli(flowArg, configuredFlows) {
+    if (!flowArg) return configuredFlows.filter(flow => flow.enabled !== false)
+
+    if (!looksLikeFlowFile(flowArg)) {
+      return configuredFlows.filter(flow => flow.name.includes(flowArg))
+    }
+
+    const flowFile = resolveFlowFile(flowArg)
+    if (!flowFile) {
+      console.warn(`⚠️ 未找到 flow 文件: ${flowArg}`)
+      return []
+    }
+
+    delete require.cache[require.resolve(flowFile)]
+    const flows = require(flowFile)
+    if (!Array.isArray(flows)) {
+      console.warn(`⚠️ flow 文件必须导出数组: ${flowFile}`)
+      return []
+    }
+
+    console.log(`🧾 已加载 flow 文件: ${flowFile}`)
+    return flows
+  }
+
   async function writeFlowFixTask(flowResult, failedStep) {
     const autoFixConfig = mpConfig.automation.autoFix || {}
     if (!autoFixConfig.suggestAfterTest) return null
@@ -75,9 +117,7 @@ function createFlowRunner(options) {
       return
     }
 
-    const flows = cliOptions.flow
-      ? allFlows.filter(flow => flow.name.includes(cliOptions.flow))
-      : allFlows.filter(flow => flow.enabled !== false)
+    const flows = loadFlowsFromCli(cliOptions.flow, allFlows)
 
     if (flows.length === 0) return
 

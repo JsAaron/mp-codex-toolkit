@@ -48,6 +48,48 @@ function parseCliOptions(args) {
   return options
 }
 
+function looksLikeFlowFile(value) {
+  return typeof value === 'string' && (
+    value.endsWith('.js') ||
+    value.includes('/') ||
+    value.includes('\\')
+  )
+}
+
+function resolveFlowFile(value) {
+  const candidates = [
+    path.resolve(process.cwd(), value),
+    path.resolve(__dirname, '..', value),
+    path.resolve(__dirname, '..', 'flows', value)
+  ]
+
+  return candidates.find(candidate => fs.existsSync(candidate) && fs.statSync(candidate).isFile())
+}
+
+function loadFlowsFromCli(flowArg, configuredFlows) {
+  if (!flowArg) return configuredFlows.filter(flow => flow.enabled !== false)
+
+  if (!looksLikeFlowFile(flowArg)) {
+    return configuredFlows.filter(flow => flow.name.includes(flowArg))
+  }
+
+  const flowFile = resolveFlowFile(flowArg)
+  if (!flowFile) {
+    console.warn(`⚠️ 未找到 flow 文件: ${flowArg}`)
+    return []
+  }
+
+  delete require.cache[require.resolve(flowFile)]
+  const flows = require(flowFile)
+  if (!Array.isArray(flows)) {
+    console.warn(`⚠️ flow 文件必须导出数组: ${flowFile}`)
+    return []
+  }
+
+  console.log(`🧾 已加载 flow 文件: ${flowFile}`)
+  return flows
+}
+
 // 检测端口是否可用
 function checkPortIsUsed(port) {
   return new Promise(resolve => {
@@ -299,6 +341,42 @@ function parseStackTrace(stack) {
   return locations.length > 0 ? locations : null
 }
 
+function matchesAutoFixIgnorePattern(value, pattern) {
+  if (!pattern) return false
+  const text = String(value || '')
+
+  if (pattern instanceof RegExp) {
+    return pattern.test(text)
+  }
+
+  if (typeof pattern === 'string') {
+    return text.includes(pattern)
+  }
+
+  if (typeof pattern === 'object') {
+    const message = pattern.message || pattern.pattern
+    if (!message) return false
+    return matchesAutoFixIgnorePattern(text, message)
+  }
+
+  return false
+}
+
+function shouldWriteFixTask(errorInfo) {
+  const autoFixConfig = mpConfig.automation.autoFix || {}
+  if (!autoFixConfig.suggestAfterTest) return false
+
+  const ignorePatterns = autoFixConfig.ignoreErrorPatterns || []
+  const haystack = [
+    errorInfo.type,
+    errorInfo.message,
+    errorInfo.page,
+    JSON.stringify(errorInfo.raw || {})
+  ].filter(Boolean).join('\n')
+
+  return !ignorePatterns.some(pattern => matchesAutoFixIgnorePattern(haystack, pattern))
+}
+
 // 保存错误（修复核心：确保目录创建完成后再写入文件）
 async function saveError(type, message, extraData = {}, pageLogPath = null) {
   // 去重：避免同一错误被多次保存
@@ -364,17 +442,22 @@ async function saveError(type, message, extraData = {}, pageLogPath = null) {
     await fs.writeFile(errorJsonPath, JSON.stringify(errorData, null, 2))
     console.log(`✅ 已保存到: ${mpConfig.automation.logs.dir}/page-error/${dirName}/\n`)
 
-    try {
-      const fixTaskResult = await writeFixTask({
-        ...errorData,
-        errorDir,
-        errorJsonPath,
-        screenshotPath: await fs.pathExists(screenshotPath) ? screenshotPath : null,
-        raw: extraData
-      })
-      console.log(`🧩 已生成 Codex 修复任务: ${fixTaskResult.latestRequestPath}`)
-    } catch (taskError) {
-      console.error(`⚠️ 生成 Codex 修复任务失败: ${taskError.message}`)
+    const fixTaskErrorInfo = {
+      ...errorData,
+      errorDir,
+      errorJsonPath,
+      screenshotPath: await fs.pathExists(screenshotPath) ? screenshotPath : null,
+      raw: extraData
+    }
+    if (shouldWriteFixTask(fixTaskErrorInfo)) {
+      try {
+        const fixTaskResult = await writeFixTask(fixTaskErrorInfo)
+        console.log(`🧩 已生成 Codex 修复任务: ${fixTaskResult.latestRequestPath}`)
+      } catch (taskError) {
+        console.error(`⚠️ 生成 Codex 修复任务失败: ${taskError.message}`)
+      }
+    } else {
+      console.log('🧩 已按 autoFix.ignoreErrorPatterns 跳过 Codex 修复任务生成')
     }
 
     if (debugConfig.enabled) {
@@ -858,6 +941,11 @@ async function writeFlowFixTask(flowResult, failedStep) {
     }
   }
 
+  if (!shouldWriteFixTask(errorData)) {
+    console.log('   🧩 已按 autoFix.ignoreErrorPatterns 跳过流程修复任务生成')
+    return null
+  }
+
   await fs.writeJson(errorJsonPath, errorData, { spaces: 2 })
   return writeFixTask(errorData)
 }
@@ -877,9 +965,7 @@ async function runFlowSmokeTest() {
     return
   }
 
-  const flows = cliOptions.flow
-    ? allFlows.filter(flow => flow.name.includes(cliOptions.flow))
-    : allFlows.filter(flow => flow.enabled !== false)
+  const flows = loadFlowsFromCli(cliOptions.flow, allFlows)
 
   if (flows.length === 0) return
 

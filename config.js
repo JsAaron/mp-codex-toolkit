@@ -82,12 +82,16 @@ module.exports = {
         screenshot: true,
         flows: [
           ...require('./flows/photo-solve.flows'),
-          ...require('./flows/memory-card-real-history.flows')
+          ...require('./flows/memory-card-real-history.flows'),
+          ...require('./flows/special-train-plugin.flows')
         ]
       },
 
       autoFix: {
-        suggestAfterTest: true
+        suggestAfterTest: true,
+        ignoreErrorPatterns: [
+          '专题训练不存在或无权限访问'
+        ]
       },
 
       logs: {

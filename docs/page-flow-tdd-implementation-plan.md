@@ -157,7 +157,7 @@ expectPhotoSolveCleared
 
 ```txt
 读取 flowConfig
-根据 enabled 或 --flow 筛选 flow
+根据 enabled、--flow 名称片段或 --flow 文件路径筛选 flow
 逐步执行 step
 记录每一步结果
 失败时截图
@@ -249,10 +249,16 @@ flows: [
 
 不要为了调试频繁改 `enabled`。
 
-推荐：
+按名称片段运行单条或一组 flow：
 
 ```powershell
 node .\mp-monitor.js --flow "新功能-初始空状态"
+```
+
+按文件路径运行某个 `flows/*.flows.js` 文件里的全部 flow：
+
+```powershell
+node .\mp-monitor.js --flow "..\flows\new-feature.flows.js"
 ```
 
 如果不确定名称：
@@ -422,7 +428,7 @@ expectPhotoSolveAnswerHidden
 业务 flow 从 config.js 拆出。
 flow runner 从主入口拆出。
 flow actions 从主入口拆出。
-支持 --flow 单条调试。
+支持 --flow 按名称片段或文件路径调试。
 支持失败生成 Codex 修复任务。
 ```
 
@@ -449,4 +455,3 @@ flow actions 从主入口拆出。
 ```
 
 后续新页面功能只要按这个结构新增 flow，就能复用同一套页面级 TDD 能力。
-

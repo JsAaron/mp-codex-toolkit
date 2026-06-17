@@ -39,7 +39,6 @@ function buildMarkdown(task) {
     '',
     `- 项目路径: ${task.projectPath}`,
     `- 仓库名称: ${task.repositoryName || 'unknown'}`,
-    `- 分支: ${task.branch || 'unknown'}`,
     '',
     '## 错误信息',
     '',
